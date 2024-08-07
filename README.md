@@ -25,5 +25,4 @@ foo.tar
 - Stores the same file (base on checksums) once
 
 # TODO
-- To Json back to virtual
-- Symlinks
+- Handle orphaned shas
