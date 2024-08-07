@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/jonathongardner/virtualfs/entropy"
 	"github.com/jonathongardner/virtualfs/filetype"
@@ -23,15 +24,23 @@ type Fs struct {
 	storageDir string
 	root       *node
 	db         *referenceDB
+	closed     bool
 }
 
 // var root = &Entry{type: filetype.Directory}
 var ErrDontWalk = fmt.Errorf("dont walk entries children")
+var ErrClosed = fmt.Errorf("virtual file system is closed")
 var ErrNotFound = fmt.Errorf("file not found") // https://smyrman.medium.com/writing-constant-errors-with-go-1-13-10c4191617
 
 func NewFs(storageDir, rootPath string) (*Fs, error) {
+	err := os.Mkdir(storageDir, 0755)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create storage dir: %v", err)
+	}
+
 	reader := os.Stdin
 	mode := os.FileMode(0755)
+	modTime := time.Now()
 	filename := "stdin"
 
 	if rootPath != "" {
@@ -51,9 +60,10 @@ func NewFs(storageDir, rootPath string) (*Fs, error) {
 			return nil, fmt.Errorf("must provide a file (not a directory)")
 		}
 		mode = fileInfo.Mode()
+		modTime = fileInfo.ModTime()
 		reader = fileToCopy
 	}
-	rootNode := newNode(filename, mode)
+	rootNode := newNode(filename, mode, modTime)
 
 	toReturn := &Fs{storageDir: storageDir, root: rootNode, db: newReferenceDB()}
 
@@ -72,7 +82,29 @@ func NewFs(storageDir, rootPath string) (*Fs, error) {
 	return toReturn, nil
 }
 
+func NewFsFromDir(storageDir string) (*Fs, error) {
+	toReturn := &Fs{storageDir: storageDir, db: newReferenceDB()}
+	return toReturn, toReturn.load()
+}
+
+func (v *Fs) Close() error {
+	v.closed = true
+	return v.save()
+}
+
+func (v *Fs) checkClosed() error {
+	if v.closed {
+		return ErrClosed
+	}
+	return nil
+}
+
 func (v *Fs) FsFrom(path string) (*Fs, error) {
+	err := v.checkClosed()
+	if err != nil {
+		return nil, err
+	}
+
 	toWalk, _, err := v.nodeFrom(path)
 	if err != nil {
 		return nil, fmt.Errorf("%v: %v (walk)", err, path)
@@ -91,6 +123,7 @@ func (v *Fs) FsChildren() (toReturn []*Fs) {
 	return
 }
 
+// --------Root stuff----------
 func (v *Fs) Process() error {
 	return v.root.ref.process()
 }
@@ -111,7 +144,15 @@ func (v *Fs) RootErrorID() error {
 	return v.root.errorID()
 }
 
-func (v *Fs) MkdirP(path string, perm os.FileMode) error {
+//--------Root stuff----------
+
+// ---------------------Disk Operations--------------------
+func (v *Fs) MkdirP(path string, perm os.FileMode, modTime time.Time) error {
+	err := v.checkClosed()
+	if err != nil {
+		return err
+	}
+
 	paths := split(path)
 	// TODO: might want to think about permision of the child dir
 	// This is important for something like a tar that first entry is `./`
@@ -120,11 +161,16 @@ func (v *Fs) MkdirP(path string, perm os.FileMode) error {
 		return nil // just return if trying to change root directory
 	}
 
-	_, err := v.root.mkdirP(paths, perm)
+	_, err = v.root.mkdirP(paths, perm, modTime)
 	return err
 }
 
-func (v *Fs) Create(path string, perm os.FileMode) (*myWriteCloser, error) {
+func (v *Fs) Create(path string, perm os.FileMode, modTime time.Time) (*myWriteCloser, error) {
+	err := v.checkClosed()
+	if err != nil {
+		return nil, err
+	}
+
 	paths := split(path)
 	if len(paths) == 0 {
 		return nil, fmt.Errorf("path must be a directory")
@@ -132,17 +178,41 @@ func (v *Fs) Create(path string, perm os.FileMode) (*myWriteCloser, error) {
 	last := len(paths) - 1
 	paths, fileName := paths[:last], paths[last]
 
-	node, err := v.root.mkdirP(paths, perm)
+	node, err := v.root.mkdirP(paths, perm, modTime)
 	if err != nil {
 		return nil, err
 	}
 
-	newNode, file, err := node.create(v.storageDir, fileName, perm)
+	newNode, file, err := node.create(v.storageDir, fileName, perm, modTime)
 	if err != nil {
 		return nil, err
 	}
 	return createMyWriterCloser(v, newNode, file), nil
 }
+
+func (v *Fs) Symlink(oldname, newname string, perm os.FileMode, modTime time.Time) error {
+	err := v.checkClosed()
+	if err != nil {
+		return err
+	}
+
+	paths := split(newname)
+	if len(paths) == 0 {
+		return fmt.Errorf("path must be a directory")
+	}
+	last := len(paths) - 1
+	paths, fileName := paths[:last], paths[last]
+
+	node, err := v.root.mkdirP(paths, perm, modTime)
+	if err != nil {
+		return err
+	}
+
+	_, err = node.symlink(oldname, fileName, perm, modTime)
+	return err
+}
+
+// ---------------------Disk Operations--------------------
 
 func (v *Fs) Walk(path string, callback func(string, os.FileInfo) error) error {
 	toWalk, path, err := v.nodeFrom(path)

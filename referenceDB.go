@@ -13,14 +13,14 @@ func newReferenceDB() *referenceDB {
 	return &referenceDB{refMap: make(map[string]*reference)}
 }
 
-func (rdb *referenceDB) setIfEmpty(ref *reference) *reference {
+func (rdb *referenceDB) setIfEmpty(passedRef *reference) *reference {
 	rdb.mu.Lock()
 	defer rdb.mu.Unlock()
 
-	if ref, ok := rdb.refMap[ref.sha512]; ok {
+	if ref, ok := rdb.refMap[passedRef.sha512]; ok {
 		return ref
 	}
 
-	rdb.refMap[ref.sha512] = ref
-	return ref
+	rdb.refMap[passedRef.sha512] = passedRef
+	return passedRef
 }

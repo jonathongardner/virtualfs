@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -59,22 +60,30 @@ func (r *reference) process() error {
 // -------------------Node---------------------
 // unique to the file like mode path/name, etc
 type node struct {
-	name    string
-	mode    os.FileMode
-	modTime time.Time // TODO: handle
-	ref     *reference
+	name        string
+	mode        os.FileMode
+	symlinkPath string
+	modTime     time.Time // TODO: handle
+	ref         *reference
 }
 
-func newNode(name string, mode os.FileMode) *node {
+func newNode(name string, mode os.FileMode, modTime time.Time) *node {
 	processed := &atomic.Bool{}
 	processed.Store(false)
 	reference := &reference{id: uuid.New().String(), processed: processed, children: make(map[string]*node)}
-	return &node{name: name, mode: mode, ref: reference}
+	return &node{name: name, mode: mode, modTime: modTime, ref: reference}
 }
 
-func newDirNode(name string, mode os.FileMode) *node {
-	toReturn := newNode(name, mode)
+func newDirNode(name string, mode os.FileMode, modTime time.Time) *node {
+	toReturn := newNode(name, mode, modTime)
 	toReturn.ref.typ = filetype.Dir
+	return toReturn
+}
+
+func newSymlinkNode(oldname, name string, mode os.FileMode, modTime time.Time) *node {
+	toReturn := newNode(name, mode, modTime)
+	toReturn.ref.typ = filetype.Symlink
+	toReturn.symlinkPath = oldname
 	return toReturn
 }
 
@@ -82,19 +91,8 @@ func (n *node) errorID() error {
 	return fmt.Errorf("id: %v, name: %v, type: %v,", n.ref.id, n.name, n.ref.typ)
 }
 
-func (n *node) create(storageDir, name string, perm os.FileMode) (*node, *os.File, error) {
-	// NOTE:orphan this could orphin some references, might want to clean up if reference is not needed
-	newNode := newNode(name, perm)
-	n.ref.children[name] = newNode
-	file, err := newNode.ref.create(storageDir)
-
-	return newNode, file, err
-}
-func (n *node) open(storageDir string) (*os.File, error) {
-	return n.ref.open(storageDir)
-}
-
-func (n *node) mkdirP(paths []string, perm os.FileMode) (*node, error) {
+// ---------------------Disk Operations--------------------
+func (n *node) mkdirP(paths []string, perm os.FileMode, modTime time.Time) (*node, error) {
 	if len(paths) == 0 {
 		return n, nil
 	}
@@ -106,16 +104,37 @@ func (n *node) mkdirP(paths []string, perm os.FileMode) (*node, error) {
 		if n.ref.child != nil {
 			return nil, fmt.Errorf("cannot mkdir %v, %v has a child", firstPath, n.ref.child.name)
 		}
-		n.ref.children[firstPath] = newDirNode(firstPath, perm)
+		n.ref.children[firstPath] = newDirNode(firstPath, perm, modTime)
 		child = n.ref.children[firstPath]
 	} else if child.ref.typ != filetype.Dir {
 		// NOTE:orphan some references, only issue is it could be a possible large file
 		// that isnt accessible so not needed and we could delete to free space
-		n.ref.children[firstPath] = newDirNode(firstPath, perm)
+		n.ref.children[firstPath] = newDirNode(firstPath, perm, modTime)
 		child = n.ref.children[firstPath]
 	}
-	return child.mkdirP(paths, perm)
+	return child.mkdirP(paths, perm, modTime)
 }
+
+func (n *node) create(storageDir, name string, perm os.FileMode, modTime time.Time) (*node, *os.File, error) {
+	// NOTE: orphan this could orphin some references, might want to clean up if reference is not needed
+	newNode := newNode(name, perm, modTime)
+	n.ref.children[name] = newNode
+	file, err := newNode.ref.create(storageDir)
+
+	return newNode, file, err
+}
+func (n *node) open(storageDir string) (*os.File, error) {
+	return n.ref.open(storageDir)
+}
+
+func (n *node) symlink(oldname, name string, perm os.FileMode, modTime time.Time) (*node, error) {
+	// NOTE: orphan this could orphin some references, might want to clean up if reference is not needed
+	newNode := newSymlinkNode(oldname, name, perm, modTime)
+	n.ref.children[name] = newNode
+	return newNode, nil
+}
+
+// ---------------------Disk Operations--------------------
 
 func (n *node) walkRecursive(path string, callback func(string, os.FileInfo) error) error {
 	err := callback(path, n)
@@ -127,8 +146,13 @@ func (n *node) walkRecursive(path string, callback func(string, os.FileInfo) err
 	}
 
 	if n.ref.children != nil {
-		for name, child := range n.ref.children {
-			if err := child.walkRecursive(filepath.Join(path, name), callback); err != nil {
+		names := make([]string, 0, len(n.ref.children))
+		for n := range n.ref.children {
+			names = append(names, n)
+		}
+		slices.Sort(names)
+		for _, name := range names {
+			if err := n.ref.children[name].walkRecursive(filepath.Join(path, name), callback); err != nil {
 				return err
 			}
 		}
@@ -145,19 +169,26 @@ func (n *node) walkRecursive(path string, callback func(string, os.FileInfo) err
 func (n *node) MarshalJSON() ([]byte, error) {
 	toReturn := make(map[string]any)
 	toReturn["name"] = n.name
-	toReturn["processed"] = n.ref.processed.Load()
-	toReturn["size"] = n.ref.size
-	toReturn["mode"] = n.mode
+	toReturn["mode"] = uint32(n.mode)
 	toReturn["modTime"] = n.modTime
-	toReturn["md5"] = n.ref.md5
-	toReturn["sha1"] = n.ref.sha1
-	toReturn["sha256"] = n.ref.sha256
-	toReturn["sha512"] = n.ref.sha512
-	toReturn["entropy"] = n.ref.entropy
+
+	toReturn["id"] = n.ref.id
 	toReturn["type"] = n.ref.typ
+	toReturn["processed"] = n.ref.processed.Load()
+	if n.ref.typ == filetype.Symlink {
+		toReturn["symlink"] = n.symlinkPath
+	} else if n.ref.typ != filetype.Dir {
+		toReturn["size"] = n.ref.size
+		toReturn["md5"] = n.ref.md5
+		toReturn["sha1"] = n.ref.sha1
+		toReturn["sha256"] = n.ref.sha256
+		toReturn["sha512"] = n.ref.sha512
+		toReturn["entropy"] = n.ref.entropy
+	}
 	return json.Marshal(toReturn)
 }
 
+// ---------------------FileInfo Methods--------------------
 func (n *node) Name() string {
 	return n.name
 }
@@ -176,5 +207,7 @@ func (n *node) IsDir() bool {
 func (n *node) Sys() any {
 	return n
 }
+
+// ---------------------FileInfo Methods--------------------
 
 // ------------------node------------------
