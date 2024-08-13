@@ -45,6 +45,13 @@ func newSymlinkFileInfo(db *referenceDB, oldname, name string, mode os.FileMode,
 
 // ---------------------Disk Operations--------------------
 func (n *FileInfo) Open() (*os.File, error) {
+	if n.ref.typ == filetype.Symlink {
+		return nil, fmt.Errorf("cannot open a symlink")
+	}
+	if n.ref.typ == filetype.Dir {
+		return nil, fmt.Errorf("cannot open a directory")
+	}
+
 	return n.ref.open(n.db.storageDir)
 }
 

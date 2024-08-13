@@ -115,6 +115,9 @@ func (v *Fs) FsFrom(path string) (*Fs, error) {
 func (v *Fs) Process() error {
 	return v.root.ref.process()
 }
+func (v *Fs) ErrorId() error {
+	return v.root.ErrorId()
+}
 
 //--------Root stuff----------
 
