@@ -25,6 +25,9 @@ type reference struct {
 	sha512    string
 	entropy   float64
 	processed *atomic.Bool
+	extracted bool
+	err       error
+	warn      error
 	// SymlinkPath string            `json:"symlinkPath"`
 	// Archive     bool              `json:"archive"`
 	child    *FileInfo
@@ -53,6 +56,9 @@ func (r *reference) process() error {
 		return ErrAlreadyProcessed
 	}
 	return nil
+}
+func (r *reference) extract() {
+	r.extracted = true
 }
 func (r *reference) getChildren(name string) (*FileInfo, error) {
 	if r.child != nil {

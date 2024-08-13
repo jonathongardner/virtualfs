@@ -21,6 +21,7 @@ var ErrDontWalk = fmt.Errorf("dont walk entries children")
 var ErrClosed = fmt.Errorf("virtual file system is closed")
 var ErrNotFound = fmt.Errorf("file not found") // https://smyrman.medium.com/writing-constant-errors-with-go-1-13-10c4191617
 var ErrOutsideFilesystem = fmt.Errorf("path is outside of filesystem")
+var ErrInFilesystem = fmt.Errorf("filesystem errors")
 
 func NewFs(storageDir, rootPath string) (*Fs, error) {
 	err := os.Mkdir(storageDir, 0755)
@@ -119,8 +120,33 @@ func (v *Fs) FsChildren() (toReturn []*Fs) {
 func (v *Fs) Process() error {
 	return v.root.ref.process()
 }
+func (v *Fs) Extract() {
+	v.root.ref.extract()
+}
+
+// TODO: might can remove
 func (v *Fs) ErrorId() error {
 	return v.root.ErrorId()
+}
+func (v *Fs) Error(err error) {
+	v.root.error(err)
+}
+func (v *Fs) Warning(err error) {
+	v.root.warning(err)
+}
+
+func (v *Fs) ProcessError() error {
+	if v.root.db.err {
+		return ErrInFilesystem
+	}
+	return nil
+}
+
+func (v *Fs) ProcessWarning() error {
+	if v.root.db.warn {
+		return ErrInFilesystem
+	}
+	return nil
 }
 
 //--------Root stuff----------

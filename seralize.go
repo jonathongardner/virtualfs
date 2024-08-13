@@ -114,6 +114,13 @@ func fileInfoToMap(n *FileInfo) map[string]any {
 	toReturn["id"] = n.ref.id
 	toReturn["type"] = n.ref.typ
 	toReturn["processed"] = n.ref.processed.Load()
+	toReturn["extracted"] = n.ref.extracted
+	if n.ref.err != nil {
+		toReturn["error"] = n.ref.err.Error()
+	}
+	if n.ref.warn != nil {
+		toReturn["warning"] = n.ref.warn.Error()
+	}
 	if n.ref.typ == filetype.Symlink {
 		toReturn["symlink"] = n.symlinkPath
 	} else if n.ref.typ != filetype.Dir {
@@ -169,6 +176,31 @@ func mapToFileInfo(db *referenceDB, data map[string]any) (*FileInfo, error) {
 		return nil, fmt.Errorf("error getting processed: %v", data["processed"])
 	}
 	ref.processed.Store(pr)
+
+	ref.extracted, ok = data["extracted"].(bool)
+	if !ok {
+		return nil, fmt.Errorf("error getting extracted: %v", data["extracted"])
+	}
+
+	_, ok = data["error"]
+	if ok {
+		errValue, ok := data["error"].(string)
+		if !ok {
+			return nil, fmt.Errorf("error getting error: %v", data["error"])
+		}
+		db.err = true
+		ref.err = fmt.Errorf(errValue)
+	}
+
+	_, ok = data["warning"]
+	if ok {
+		warnValue, ok := data["warning"].(string)
+		if !ok {
+			return nil, fmt.Errorf("error getting warning: %v", data["warning"])
+		}
+		db.warn = true
+		ref.warn = fmt.Errorf(warnValue)
+	}
 
 	if ref.typ == filetype.Dir {
 		n.ref = ref

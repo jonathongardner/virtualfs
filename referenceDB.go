@@ -7,11 +7,13 @@ import (
 type referenceDB struct {
 	storageDir string
 	mu         sync.Mutex
+	err        bool
+	warn       bool
 	refMap     map[string]*reference
 }
 
 func newReferenceDB(storageDir string) *referenceDB {
-	return &referenceDB{storageDir: storageDir, refMap: make(map[string]*reference)}
+	return &referenceDB{storageDir: storageDir, err: false, warn: false, refMap: make(map[string]*reference)}
 }
 
 func (rdb *referenceDB) setIfEmpty(passedRef *reference) *reference {

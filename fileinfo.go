@@ -42,6 +42,14 @@ func newSymlinkFileInfo(db *referenceDB, oldname, name string, mode os.FileMode,
 	toReturn.symlinkPath = oldname
 	return toReturn
 }
+func (n *FileInfo) error(err error) {
+	n.ref.err = err
+	n.db.err = true
+}
+func (n *FileInfo) warning(warn error) {
+	n.ref.warn = warn
+	n.db.warn = true
+}
 
 // ---------------------Disk Operations--------------------
 func (n *FileInfo) Open() (*os.File, error) {
