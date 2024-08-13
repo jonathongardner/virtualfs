@@ -100,16 +100,20 @@ func (v *Fs) FsFrom(path string) (*Fs, error) {
 	return &Fs{root: toWalk}, nil
 }
 
-// func (v *Fs) FsChildren() (toReturn []*Fs) {
-// 	if v.root.ref.children == nil {
-// 		return
-// 	}
+func (v *Fs) FsChildren() (toReturn []*Fs) {
+	if v.root.ref.child != nil {
+		toReturn = append(toReturn, &Fs{root: v.root.ref.child})
+	}
 
-// 	for _, n := range v.root.ref.children {
-// 		toReturn = append(toReturn, &Fs{root: n})
-// 	}
-// 	return
-// }
+	if v.root.ref.children == nil {
+		return
+	}
+
+	for _, n := range v.root.ref.children {
+		toReturn = append(toReturn, &Fs{root: n})
+	}
+	return
+}
 
 // --------Root stuff----------
 func (v *Fs) Process() error {
