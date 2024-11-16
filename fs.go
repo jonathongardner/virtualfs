@@ -93,12 +93,31 @@ func (v *Fs) FsFrom(path string) (*Fs, error) {
 		return nil, err
 	}
 
-	toWalk, _, err := v.fileInfoFrom(path, -1)
+	newRoot, _, err := v.fileInfoFrom(path, -1)
 	if err != nil {
 		return nil, fmt.Errorf("%v: %v (FsFrom)", err, path)
 	}
 
-	return &Fs{root: toWalk}, nil
+	return &Fs{root: newRoot}, nil
+}
+
+func (v *Fs) NewFsChild(path string) (*Fs, error) {
+	err := v.checkClosed()
+	if err != nil {
+		return nil, err
+	}
+
+	paths, err := split(path)
+	if err != nil || len(paths) != 1 {
+		return nil, fmt.Errorf("error creating new child %v", path)
+	}
+
+	newRoot, err := v.root.mkdirP(paths, v.root.mode, v.root.modTime)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Fs{root: newRoot}, nil
 }
 
 func (v *Fs) FsChildren() (toReturn []*Fs) {
@@ -149,6 +168,10 @@ func (v *Fs) ProcessWarning() error {
 	return nil
 }
 
+func (v *Fs) LocalPath() string {
+	return v.root.Path()
+}
+
 //--------Root stuff----------
 
 // ---------------------Disk Operations--------------------
@@ -188,6 +211,19 @@ func (v *Fs) Open(path string) (*os.File, error) {
 		return nil, err
 	}
 	return toWalk.Open()
+}
+
+func (v *Fs) Path(path string) (string, error) {
+	err := v.checkClosed()
+	if err != nil {
+		return "", err
+	}
+
+	toWalk, _, err := v.fileInfoFrom(path, -1)
+	if err != nil {
+		return "", err
+	}
+	return toWalk.Path(), nil
 }
 
 func (v *Fs) MkdirP(path string, perm os.FileMode, modTime time.Time) error {
