@@ -63,6 +63,10 @@ func (n *FileInfo) Open() (*os.File, error) {
 	return n.ref.open(n.db.storageDir)
 }
 
+func (n *FileInfo) Path() string {
+	return n.ref.storagePath(n.db.storageDir)
+}
+
 func (n *FileInfo) mkdirP(paths []string, perm os.FileMode, modTime time.Time) (*FileInfo, error) {
 	// TODO: might want to think about permision of the child dir
 	// This is important for something like a tar that first entry is `./`
