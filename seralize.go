@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync/atomic"
 	"time"
 
 	"github.com/jonathongardner/virtualfs/filetype"
@@ -113,13 +112,21 @@ func fileInfoToMap(n *FileInfo) map[string]any {
 
 	toReturn["id"] = n.ref.id
 	toReturn["type"] = n.ref.typ
-	toReturn["processed"] = n.ref.processed.Load()
-	toReturn["extracted"] = n.ref.extracted
+	tags := map[string]any{}
+	n.ref.tags.Range(func(key, value any) bool {
+		tags[key.(string)] = value
+		return true // Return true to continue iterating
+	})
+	toReturn["tags"] = tags
 	if n.ref.err != nil {
 		toReturn["error"] = n.ref.err.Error()
 	}
 	if n.ref.warn != nil {
-		toReturn["warning"] = n.ref.warn.Error()
+		warning := []string{}
+		for _, e := range n.ref.warn {
+			warning = append(warning, e.Error())
+		}
+		toReturn["warning"] = warning
 	}
 	if n.ref.typ == filetype.Symlink {
 		toReturn["symlink"] = n.symlinkPath
@@ -158,7 +165,7 @@ func mapToFileInfo(db *referenceDB, data map[string]any) (*FileInfo, error) {
 		return nil, fmt.Errorf("error parsing modTime %v", err)
 	}
 
-	ref := &reference{processed: &atomic.Bool{}, children: make(map[string]*FileInfo)}
+	ref := &reference{children: make(map[string]*FileInfo)}
 
 	ref.id, ok = data["id"].(string)
 	if !ok {
@@ -171,15 +178,12 @@ func mapToFileInfo(db *referenceDB, data map[string]any) (*FileInfo, error) {
 	}
 	ref.typ = filetype.FiletypeFromJson(typ)
 
-	pr, ok := data["processed"].(bool)
+	tags, ok := data["tags"].(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("error getting processed: %v", data["processed"])
+		return nil, fmt.Errorf("error getting tags: %v", data["tags"])
 	}
-	ref.processed.Store(pr)
-
-	ref.extracted, ok = data["extracted"].(bool)
-	if !ok {
-		return nil, fmt.Errorf("error getting extracted: %v", data["extracted"])
+	for k, v := range tags {
+		ref.tags.Store(k, v)
 	}
 
 	_, ok = data["error"]
@@ -194,12 +198,18 @@ func mapToFileInfo(db *referenceDB, data map[string]any) (*FileInfo, error) {
 
 	_, ok = data["warning"]
 	if ok {
-		warnValue, ok := data["warning"].(string)
+		warnValues, ok := data["warning"].([]any)
 		if !ok {
 			return nil, fmt.Errorf("error getting warning: %v", data["warning"])
 		}
 		db.warn = true
-		ref.warn = fmt.Errorf(warnValue)
+		for i, warnValue := range warnValues {
+			wv, ok := warnValue.(string)
+			if !ok {
+				return nil, fmt.Errorf("error getting warning.%v: %v", i, wv)
+			}
+			ref.warn = append(ref.warn, fmt.Errorf(wv))
+		}
 	}
 
 	if ref.typ == filetype.Dir {

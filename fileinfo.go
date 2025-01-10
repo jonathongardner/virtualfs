@@ -2,10 +2,10 @@ package virtualfs
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
-	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,20 +24,21 @@ type FileInfo struct {
 }
 
 func newFileInfo(db *referenceDB, name string, mode os.FileMode, modTime time.Time) *FileInfo {
-	processed := &atomic.Bool{}
-	processed.Store(false)
-	reference := &reference{id: uuid.New().String(), processed: processed, children: make(map[string]*FileInfo)}
+	reference := &reference{
+		id:       uuid.New().String(),
+		children: make(map[string]*FileInfo),
+	}
 	return &FileInfo{db: db, name: name, mode: mode, modTime: modTime, ref: reference}
 }
 
 func newDirFileInfo(db *referenceDB, name string, mode os.FileMode, modTime time.Time) *FileInfo {
-	toReturn := newFileInfo(db, name, mode, modTime)
+	toReturn := newFileInfo(db, name, mode|fs.ModeDir, modTime)
 	toReturn.ref.typ = filetype.Dir
 	return toReturn
 }
 
 func newSymlinkFileInfo(db *referenceDB, oldname, name string, mode os.FileMode, modTime time.Time) *FileInfo {
-	toReturn := newFileInfo(db, name, mode, modTime)
+	toReturn := newFileInfo(db, name, mode|fs.ModeSymlink, modTime)
 	toReturn.ref.typ = filetype.Symlink
 	toReturn.symlinkPath = oldname
 	return toReturn
@@ -47,8 +48,21 @@ func (n *FileInfo) error(err error) {
 	n.db.err = true
 }
 func (n *FileInfo) warning(warn error) {
-	n.ref.warn = warn
+	n.ref.warn = append(n.ref.warn, warn)
 	n.db.warn = true
+}
+func (n *FileInfo) tagS(key string, value any) {
+	n.ref.tags.Store(key, value)
+}
+func (n *FileInfo) tagSIfBlank(key string, value any) error {
+	_, loaded := n.ref.tags.LoadOrStore(key, value)
+	if loaded {
+		return ErrAlreadyExist
+	}
+	return nil
+}
+func (n *FileInfo) tagG(key string) (any, bool) {
+	return n.ref.tags.Load(key)
 }
 
 // ---------------------Disk Operations--------------------
@@ -205,7 +219,7 @@ func (fi *FileInfo) IsDir() bool {
 	return fi.mode.IsDir()
 }
 func (fi *FileInfo) Sys() any {
-	return nil
+	return fi.ref.tags
 }
 
 // ---------------------FileInfo Methods--------------------

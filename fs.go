@@ -23,6 +23,11 @@ var ErrNotFound = fmt.Errorf("file not found") // https://smyrman.medium.com/wri
 var ErrOutsideFilesystem = fmt.Errorf("path is outside of filesystem")
 var ErrInFilesystem = fmt.Errorf("filesystem errors")
 
+func NewFsFromDb(storageDir string) (*Fs, error) {
+	toReturn := &Fs{}
+	return toReturn, toReturn.load(storageDir)
+}
+
 func NewFs(storageDir, rootPath string) (*Fs, error) {
 	err := os.Mkdir(storageDir, 0755)
 	if err != nil {
@@ -68,11 +73,6 @@ func NewFs(storageDir, rootPath string) (*Fs, error) {
 	}
 
 	return toReturn, nil
-}
-
-func NewFsFromDir(storageDir string) (*Fs, error) {
-	toReturn := &Fs{}
-	return toReturn, toReturn.load(storageDir)
 }
 
 func (v *Fs) Close() error {
@@ -136,13 +136,6 @@ func (v *Fs) FsChildren() (toReturn []*Fs) {
 }
 
 // --------Root stuff----------
-func (v *Fs) Process() error {
-	return v.root.ref.process()
-}
-func (v *Fs) Extract() {
-	v.root.ref.extract()
-}
-
 // TODO: might can remove
 func (v *Fs) ErrorId() error {
 	return v.root.ErrorId()
@@ -170,6 +163,21 @@ func (v *Fs) ProcessWarning() error {
 
 func (v *Fs) LocalPath() string {
 	return v.root.Path()
+}
+
+// Tags can be used to mark a file
+// Note: its on the "reference" so same sha/data will have same tags
+// mostly can be used for marking what extracter was used
+func (v *Fs) TagS(key string, value any) {
+	v.root.tagS(key, value)
+}
+func (v *Fs) TagSIfBlank(key string, value any) error {
+	return v.root.tagSIfBlank(key, value)
+}
+
+// Get tag
+func (v *Fs) TagG(key string) (any, bool) {
+	return v.root.tagG(key)
 }
 
 //--------Root stuff----------

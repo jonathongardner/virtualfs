@@ -11,7 +11,7 @@ import (
 
 const fooFile = "testdata/foo"
 const fooSha512 = "0f5623276549769a63c79ca20fc573518685819fe82b39f43a3e7cf709c8baa16524daa95e006e81f7267700a88adee8a6209201be960a10c81c35ff3547e3b7"
-const fooMod = 0664
+const fooMod = 0644
 
 var ignoreTime = time.Date(0, 0, 0, 0, 0, 0, 0, time.UTC)
 
@@ -23,6 +23,8 @@ var time1 = time.Date(2020, 12, 8, 19, 0, 0, 0, time.UTC)
 var time2 = time.Date(2022, 4, 7, 22, 0, 0, 0, time.UTC)
 var time3 = time.Date(2022, 3, 17, 15, 0, 0, 0, time.UTC)
 
+var emptyTags = map[any]any{}
+
 type fileinfoTest struct {
 	path        string
 	mode        os.FileMode
@@ -30,6 +32,7 @@ type fileinfoTest struct {
 	sha512      string
 	ftype       string
 	symlinkPath string
+	tags        map[any]any
 }
 
 type MyT struct {
@@ -104,12 +107,21 @@ func (t *MyT) AssertFiles(expectedFileInfo []fileinfoTest, v *Fs, format string,
 		expectedFileInfo = expectedFileInfo[1:]
 
 		t.AssertEqual(expectedFI.path, path, "%v path doesnt match %v", str, count)
-		t.AssertEqual(expectedFI.mode, fi.mode, "%v mode doesnt match %v", str, count)
+		t.AssertEqual(expectedFI.mode, fi.mode, "%v mode doesnt match %v (%d)", str, count, fi.mode)
 		if expectedFI.modTime != ignoreTime {
 			t.AssertEqual(expectedFI.modTime, fi.modTime, "%v modeTime doesnt match %v", str, count)
 		}
 		t.AssertEqual(expectedFI.sha512, fi.ref.sha512, "%v sha512 doesnt match %v", str, count)
 		t.AssertEqual(expectedFI.ftype, fi.ref.typ.Mimetype, "%v filetype doesnt match %v", str, count)
+
+		found := map[any]bool{}
+		fi.ref.tags.Range(func(k, v any) bool {
+			// t.AssertEqual(expectedFI.tags[k], v, "%v tags do not match %v", str, k)
+			found[k] = true
+			return true
+		})
+		t.AssertEqual(len(found), len(expectedFI.tags), "%v maps size dont match %v", str, count)
+
 		t.AssertEqual(expectedFI.symlinkPath, fi.symlinkPath, "%v symlinkPath doesnt match %v", str, count)
 
 		count++

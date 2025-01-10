@@ -4,32 +4,29 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync/atomic"
+	"sync"
 
 	"github.com/jonathongardner/virtualfs/filetype"
 )
 
 // -------------------Reference---------------------
-var ErrAlreadyProcessed = fmt.Errorf("reference already extracted")
+var ErrAlreadyExist = fmt.Errorf("reference already exist")
 var ErrAlreadyHasChild = fmt.Errorf("has child")
 var ErrAlreadyHasChildren = fmt.Errorf("has children")
 
 // everything unique to a file (i.e not mode or name)
 type reference struct {
-	id        string
-	size      int64
-	typ       filetype.Filetype
-	md5       string
-	sha1      string
-	sha256    string
-	sha512    string
-	entropy   float64
-	processed *atomic.Bool
-	extracted bool
-	err       error
-	warn      error
-	// SymlinkPath string            `json:"symlinkPath"`
-	// Archive     bool              `json:"archive"`
+	id       string
+	size     int64
+	typ      filetype.Filetype
+	md5      string
+	sha1     string
+	sha256   string
+	sha512   string
+	entropy  float64
+	err      error
+	warn     []error
+	tags     sync.Map
 	child    *FileInfo
 	children map[string]*FileInfo
 }
@@ -51,15 +48,6 @@ func (r *reference) open(storageDir string) (*os.File, error) {
 
 // Return old value, if old valud is true then it was already extracted
 // might should return an error for that?
-func (r *reference) process() error {
-	if r.processed.Swap(true) {
-		return ErrAlreadyProcessed
-	}
-	return nil
-}
-func (r *reference) extract() {
-	r.extracted = true
-}
 func (r *reference) getChildren(name string) (*FileInfo, error) {
 	if r.child != nil {
 		return nil, fmt.Errorf("has child not children %v", name)

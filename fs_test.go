@@ -2,6 +2,7 @@ package virtualfs
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"testing"
 	"time"
@@ -50,26 +51,26 @@ func TestVirtual(t *testing.T) {
 		v, err := NewFs(tmp, fooFile)
 		myT.FatalfIfErr(err, "Failed to create virtual function")
 
-		expected := []fileinfoTest{{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", ""}}
+		expected := []fileinfoTest{{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags}}
 		myT.AssertFiles(expected, v, "Initial")
 
 		// add directory and make all paths needed
 		v.MkdirP("/foo1/foo2", 0755, time1)
 		expected = []fileinfoTest{
-			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", ""},
-			{"/foo1", 0755, time1, "", "directory/directory", ""},
-			{"/foo1/foo2", 0755, time1, "", "directory/directory", ""},
+			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags},
+			{"/foo1", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
 		}
 		myT.AssertFiles(expected, v, "after creating /foo1/foo2")
 
 		// add another directory and make all paths needed
 		v.MkdirP("/foo1/foo2/foo3/foo4", 0700, time2)
 		expected = []fileinfoTest{
-			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", ""},
-			{"/foo1", 0755, time1, "", "directory/directory", ""},
-			{"/foo1/foo2", 0755, time1, "", "directory/directory", ""},
-			{"/foo1/foo2/foo3", 0700, time2, "", "directory/directory", ""},
-			{"/foo1/foo2/foo3/foo4", 0700, time2, "", "directory/directory", ""},
+			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags},
+			{"/foo1", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2/foo3", 0700 | fs.ModeDir, time2, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2/foo3/foo4", 0700 | fs.ModeDir, time2, "", "directory/directory", "", emptyTags},
 		}
 		myT.AssertFiles(expected, v, "after creating foo1/foo2/foo3/foo4")
 		myT.AssertTmpDirFileCount(1, tmp, "after creating foo1/foo2/foo3/foo4")
@@ -79,12 +80,12 @@ func TestVirtual(t *testing.T) {
 		myT.FatalfIfErr(err, "failed to create virtual file /foo1/foo2/foo3/bar")
 
 		expected = []fileinfoTest{
-			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", ""},
-			{"/foo1", 0755, time1, "", "directory/directory", ""},
-			{"/foo1/foo2", 0755, time1, "", "directory/directory", ""},
-			{"/foo1/foo2/foo3", 0700, time2, "", "directory/directory", ""},
-			{"/foo1/foo2/foo3/bar", 0655, time3, helloWorldSha512, "text/plain; charset=utf-8", ""},
-			{"/foo1/foo2/foo3/foo4", 0700, time2, "", "directory/directory", ""},
+			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags},
+			{"/foo1", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2/foo3", 0700 | fs.ModeDir, time2, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2/foo3/bar", 0655, time3, helloWorldSha512, "text/plain; charset=utf-8", "", emptyTags},
+			{"/foo1/foo2/foo3/foo4", 0700 | fs.ModeDir, time2, "", "directory/directory", "", emptyTags},
 		}
 		myT.AssertFiles(expected, v, "after creating foo1/foo2/foo3/bar")
 		myT.AssertTmpDirFileCount(2, tmp, "after creating foo1/foo2/foo3/bar")
@@ -94,13 +95,13 @@ func TestVirtual(t *testing.T) {
 		myT.FatalfIfErr(err, "failed to create symlink /foo1/foo2/symlink-bar")
 
 		expected = []fileinfoTest{
-			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", ""},
-			{"/foo1", 0755, time1, "", "directory/directory", ""},
-			{"/foo1/foo2", 0755, time1, "", "directory/directory", ""},
-			{"/foo1/foo2/foo3", 0700, time2, "", "directory/directory", ""},
-			{"/foo1/foo2/foo3/bar", 0655, time3, helloWorldSha512, "text/plain; charset=utf-8", ""},
-			{"/foo1/foo2/foo3/foo4", 0700, time2, "", "directory/directory", ""},
-			{"/foo1/foo2/symlink-bar", 0700, time1, "", "symlink/symlink", "/foo1/foo2/foo3/bar"},
+			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags},
+			{"/foo1", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2/foo3", 0700 | fs.ModeDir, time2, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2/foo3/bar", 0655, time3, helloWorldSha512, "text/plain; charset=utf-8", "", emptyTags},
+			{"/foo1/foo2/foo3/foo4", 0700 | fs.ModeDir, time2, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2/symlink-bar", 0700 | fs.ModeSymlink, time1, "", "symlink/symlink", "/foo1/foo2/foo3/bar", emptyTags},
 		}
 		myT.AssertFiles(expected, v, "after creating /foo1/foo2/symlink-bar")
 		myT.AssertTmpDirFileCount(2, tmp, "after creating /foo1/foo2/symlink-bar")
@@ -110,14 +111,14 @@ func TestVirtual(t *testing.T) {
 		myT.FatalfIfErr(err, "failed to create symlink /foo1/foo2/symlink-nowhere")
 
 		expected = []fileinfoTest{
-			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", ""},
-			{"/foo1", 0755, time1, "", "directory/directory", ""},
-			{"/foo1/foo2", 0755, time1, "", "directory/directory", ""},
-			{"/foo1/foo2/foo3", 0700, time2, "", "directory/directory", ""},
-			{"/foo1/foo2/foo3/bar", 0655, time3, helloWorldSha512, "text/plain; charset=utf-8", ""},
-			{"/foo1/foo2/foo3/foo4", 0700, time2, "", "directory/directory", ""},
-			{"/foo1/foo2/symlink-bar", 0700, time1, "", "symlink/symlink", "/foo1/foo2/foo3/bar"},
-			{"/foo1/foo2/symlink-nowhere", 0777, time2, "", "symlink/symlink", "/cool/beans/who-cares"},
+			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags},
+			{"/foo1", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2/foo3", 0700 | fs.ModeDir, time2, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2/foo3/bar", 0655, time3, helloWorldSha512, "text/plain; charset=utf-8", "", emptyTags},
+			{"/foo1/foo2/foo3/foo4", 0700 | fs.ModeDir, time2, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2/symlink-bar", 0700 | fs.ModeSymlink, time1, "", "symlink/symlink", "/foo1/foo2/foo3/bar", emptyTags},
+			{"/foo1/foo2/symlink-nowhere", 0777 | fs.ModeSymlink, time2, "", "symlink/symlink", "/cool/beans/who-cares", emptyTags},
 		}
 		myT.AssertFiles(expected, v, "after creating /foo1/foo2/symlink-nowhere")
 		myT.AssertTmpDirFileCount(2, tmp, "after creating /foo1/foo2/symlink-nowhere")
@@ -144,11 +145,11 @@ func TestVirtualUsesReferencesForSameFile(t *testing.T) {
 		myT.FatalfIfErr(err, "failed to create virtual file /moreFoo from baz")
 
 		expected := []fileinfoTest{
-			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", ""},
-			{"/bar", 0655, time1, helloWorldSha512, "text/plain; charset=utf-8", ""},
-			{"/bar/moreFoo", 0100, time3, helloFooSha512, "text/plain; charset=utf-8", ""},
-			{"/baz", 0600, time2, helloWorldSha512, "text/plain; charset=utf-8", ""},
-			{"/baz/moreFoo", 0100, time3, helloFooSha512, "text/plain; charset=utf-8", ""},
+			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags},
+			{"/bar", 0655, time1, helloWorldSha512, "text/plain; charset=utf-8", "", emptyTags},
+			{"/bar/moreFoo", 0100, time3, helloFooSha512, "text/plain; charset=utf-8", "", emptyTags},
+			{"/baz", 0600, time2, helloWorldSha512, "text/plain; charset=utf-8", "", emptyTags},
+			{"/baz/moreFoo", 0100, time3, helloFooSha512, "text/plain; charset=utf-8", "", emptyTags},
 		}
 		myT.AssertFiles(expected, v, "after creating files in virtual from")
 		myT.AssertTmpDirFileCount(3, tmp, "after creating in virtual from")
@@ -177,10 +178,10 @@ func TestVirtualDoesntAllowMovingOutsideFS(t *testing.T) {
 		myT.FatalfIfErr(err, "failed to create virtual file bad/../okay/but-really-shouldnt-do-this-either")
 
 		expected := []fileinfoTest{
-			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", ""},
-			{"/okay", 0655, time1, "", "directory/directory", ""},
-			{"/okay/but-really-shouldnt-do-this", 0655, time1, helloWorldSha512, "text/plain; charset=utf-8", ""},
-			{"/okay/but-really-shouldnt-do-this-either", 0055, time2, helloFooSha512, "text/plain; charset=utf-8", ""},
+			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags},
+			{"/okay", 0655 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
+			{"/okay/but-really-shouldnt-do-this", 0655, time1, helloWorldSha512, "text/plain; charset=utf-8", "", emptyTags},
+			{"/okay/but-really-shouldnt-do-this-either", 0055, time2, helloFooSha512, "text/plain; charset=utf-8", "", emptyTags},
 		}
 		myT.AssertFiles(expected, v, "after overwriting file with dir")
 		myT.AssertTmpDirFileCount(3, tmp, "after overwriting file with dir")
@@ -203,10 +204,10 @@ func TestVirtualOverwriteFileWithDir(t *testing.T) {
 		myT.FatalfIfErr(err, "failed to create virtual file /bar/moreFoo")
 
 		expected := []fileinfoTest{
-			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", ""},
-			{"/bar", 0100, time3, "", "directory/directory", ""},
-			{"/bar/moreFoo", 0100, time3, helloFooSha512, "text/plain; charset=utf-8", ""},
-			{"/baz", 0600, time2, helloWorldSha512, "text/plain; charset=utf-8", ""},
+			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags},
+			{"/bar", 0100 | fs.ModeDir, time3, "", "directory/directory", "", emptyTags},
+			{"/bar/moreFoo", 0100, time3, helloFooSha512, "text/plain; charset=utf-8", "", emptyTags},
+			{"/baz", 0600, time2, helloWorldSha512, "text/plain; charset=utf-8", "", emptyTags},
 		}
 		myT.AssertFiles(expected, v, "after overwriting file with dir")
 		myT.AssertTmpDirFileCount(3, tmp, "after overwriting file with dir")
@@ -233,11 +234,44 @@ func TestVirtualFrom(t *testing.T) {
 		myT.FatalfIfErr(err, "failed to create /moreFoo from virtual file bar")
 
 		expected := []fileinfoTest{
-			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", ""},
-			{"/bar", 0655, time1, helloWorldSha512, "text/plain; charset=utf-8", ""},
-			{"/bar/moreFoo", 0100, time3, helloFooSha512, "text/plain; charset=utf-8", ""},
+			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags},
+			{"/bar", 0655, time1, helloWorldSha512, "text/plain; charset=utf-8", "", emptyTags},
+			{"/bar/moreFoo", 0100, time3, helloFooSha512, "text/plain; charset=utf-8", "", emptyTags},
 		}
 		myT.AssertFiles(expected, v, "comparing")
+	})
+}
+
+func TestTags(t *testing.T) {
+	myT := NewMyT("Test Tags", t)
+	myT.TmpDir(func(tmp string) {
+		v, err := NewFs(tmp, fooFile)
+		myT.FatalfIfErr(err, "failed to create virtual function")
+
+		_, ok := v.TagG("foo")
+		myT.Assert(!ok, "foo value should not be set yet")
+
+		v.TagS("foo", 47)
+		val, ok := v.TagG("foo")
+		myT.Assert(ok, "foo value should be set")
+		myT.AssertEqual(47, val, "should set key foo to 47")
+
+		v.TagS("foo", 53)
+		val, ok = v.TagG("foo")
+		myT.Assert(ok, "foo value should still be set")
+		myT.AssertEqual(53, val, "should set key foo to 53")
+
+		err = v.TagSIfBlank("foo", 7)
+		myT.AssertErr(ErrAlreadyExist, err, "should return already set error")
+		val, ok = v.TagG("foo")
+		myT.Assert(ok, "foo value should still be set")
+		myT.AssertEqual(53, val, "key foo should still be set to 53")
+
+		err = v.TagSIfBlank("bar", 7)
+		myT.AssertEqual(nil, err, "should not return error since not set yet")
+		val, ok = v.TagG("bar")
+		myT.Assert(ok, "bar value should be set")
+		myT.AssertEqual(7, val, "should set key bar to 53")
 	})
 }
 
@@ -278,10 +312,10 @@ func TestSingleChild(t *testing.T) {
 		myT.FatalfIfErr(err, "failed to create /moreFoo from virtual file bar")
 
 		expected := []fileinfoTest{
-			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", ""},
-			{"/bar", 0655, time1, helloWorldSha512, "text/plain; charset=utf-8", ""},
-			{"/bar", 0700, time2, helloWorldCompressedSha512, "text/plain; charset=utf-8", ""},
-			{"/bar/moreFoo", 0100, time3, helloFooSha512, "text/plain; charset=utf-8", ""},
+			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags},
+			{"/bar", 0655, time1, helloWorldSha512, "text/plain; charset=utf-8", "", emptyTags},
+			{"/bar", 0700, time2, helloWorldCompressedSha512, "text/plain; charset=utf-8", "", emptyTags},
+			{"/bar/moreFoo", 0100, time3, helloFooSha512, "text/plain; charset=utf-8", "", emptyTags},
 		}
 		myT.AssertFiles(expected, v, "comparing")
 

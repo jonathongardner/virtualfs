@@ -2,6 +2,7 @@ package virtualfs
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,6 +15,9 @@ func TestVirtualClose(t *testing.T) {
 		v, err := NewFs(tmp, fooFile)
 		myT.FatalfIfErr(err, "Failed to create virtual function")
 
+		v.TagS("foo", "bar")
+		v.TagS("baz", 47)
+
 		err = v.MkdirP("/foo", 0755, time1)
 		myT.FatalfIfErr(err, "failed to create virtual folder /foo")
 
@@ -21,19 +25,19 @@ func TestVirtualClose(t *testing.T) {
 		myT.FatalfIfErr(err, "failed to create virtual file /foo/bar")
 
 		fooV, err := v.FsFrom("/foo/bar")
+		fooV.TagS("foo2", "bar2")
+		fooV.TagS("processed", true)
 		myT.FatalfIfErr(err, "failed to create virtual filesystem /foo/bar")
 		fooV.Warning(fmt.Errorf("yikes! somthing kinda whent wrong"))
-		fooV.Extract()
-		fooV.Process()
 
 		err = v.Symlink("/foo/bar", "/foo/bar-symlink", 0777, time3)
 		myT.FatalfIfErr(err, "failed to create symlink /foo/bar-symlink")
 
 		expected := []fileinfoTest{
-			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", ""},
-			{"/foo", 0755, time1, "", "directory/directory", ""},
-			{"/foo/bar", 0655, time2, helloWorldSha512, "text/plain; charset=utf-8", ""},
-			{"/foo/bar-symlink", 0777, time3, "", "symlink/symlink", "/foo/bar"},
+			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", map[any]any{"foo": "bar", "baz": 47}},
+			{"/foo", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
+			{"/foo/bar", 0655, time2, helloWorldSha512, "text/plain; charset=utf-8", "", map[any]any{"foo2": "bar2", "processed": true}},
+			{"/foo/bar-symlink", 0777 | fs.ModeSymlink, time3, "", "symlink/symlink", "/foo/bar", emptyTags},
 		}
 		myT.AssertFiles(expected, v, "after adding files in virtual file system")
 		myT.AssertTmpDirFileCount(2, tmp, "after adding files in virtual file system")
@@ -61,8 +65,9 @@ func TestVirtualClose(t *testing.T) {
 		myT.AssertEqual(err, ErrClosed, "expected error creating symlink /foo/another-symlink after closing")
 
 		//------------ Load folder and make sure it works
-		newV, err := NewFsFromDir(tmp)
+		newV, err := NewFsFromDb(tmp)
 		myT.FatalfIfErr(err, "failed to create filesystem from dir")
+		myT.AssertFiles(expected, newV, "after loading files in virtual from")
 		myT.AssertTmpDirFileCount(2, tmp, "after loading fs should delete manifest")
 
 		err = newV.MkdirP("/foo/new-folder", 0155, time1)
@@ -77,9 +82,9 @@ func TestVirtualClose(t *testing.T) {
 
 		newExpected := append(
 			expected,
-			fileinfoTest{"/foo/duplicate", 0200, time2, helloWorldSha512, "text/plain; charset=utf-8", ""},
-			fileinfoTest{"/foo/new-file", 0655, time3, helloFooSha512, "text/plain; charset=utf-8", ""},
-			fileinfoTest{"/foo/new-folder", 0155, time1, "", "directory/directory", ""},
+			fileinfoTest{"/foo/duplicate", 0200, time2, helloWorldSha512, "text/plain; charset=utf-8", "", map[any]any{"foo2": "bar2", "processed": true}},
+			fileinfoTest{"/foo/new-file", 0655, time3, helloFooSha512, "text/plain; charset=utf-8", "", emptyTags},
+			fileinfoTest{"/foo/new-folder", 0155 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
 		)
 		myT.AssertFiles(newExpected, newV, "after creating files in virtual from")
 		myT.AssertTmpDirFileCount(3, tmp, "after creating in virtual from")
@@ -104,17 +109,15 @@ func TestVirtualCloseWithErr(t *testing.T) {
 		fooV, err := v.FsFrom("/foo/bar")
 		myT.FatalfIfErr(err, "failed to create virtual filesystem /foo/bar")
 		fooV.Error(fmt.Errorf("yikes! somthing whent wrong"))
-		fooV.Extract()
-		fooV.Process()
 
 		err = v.Symlink("/foo/bar", "/foo/bar-symlink", 0777, time3)
 		myT.FatalfIfErr(err, "failed to create symlink /foo/bar-symlink")
 
 		expected := []fileinfoTest{
-			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", ""},
-			{"/foo", 0755, time1, "", "directory/directory", ""},
-			{"/foo/bar", 0655, time2, helloWorldSha512, "text/plain; charset=utf-8", ""},
-			{"/foo/bar-symlink", 0777, time3, "", "symlink/symlink", "/foo/bar"},
+			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags},
+			{"/foo", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
+			{"/foo/bar", 0655, time2, helloWorldSha512, "text/plain; charset=utf-8", "", emptyTags},
+			{"/foo/bar-symlink", 0777 | fs.ModeSymlink, time3, "", "symlink/symlink", "/foo/bar", emptyTags},
 		}
 		myT.AssertFiles(expected, v, "after adding files in virtual file system")
 		myT.AssertTmpDirFileCount(2, tmp, "after adding files in virtual file system")
@@ -142,7 +145,7 @@ func TestVirtualCloseWithErr(t *testing.T) {
 		myT.AssertEqual(err, ErrClosed, "expected error creating symlink /foo/another-symlink after closing")
 
 		//------------ Load folder and make sure it works
-		newV, err := NewFsFromDir(tmp)
+		newV, err := NewFsFromDb(tmp)
 		myT.FatalfIfErr(err, "failed to create filesystem from dir")
 		myT.AssertTmpDirFileCount(2, tmp, "after loading fs should delete manifest")
 
@@ -158,9 +161,9 @@ func TestVirtualCloseWithErr(t *testing.T) {
 
 		newExpected := append(
 			expected,
-			fileinfoTest{"/foo/duplicate", 0200, time2, helloWorldSha512, "text/plain; charset=utf-8", ""},
-			fileinfoTest{"/foo/new-file", 0655, time3, helloFooSha512, "text/plain; charset=utf-8", ""},
-			fileinfoTest{"/foo/new-folder", 0155, time1, "", "directory/directory", ""},
+			fileinfoTest{"/foo/duplicate", 0200, time2, helloWorldSha512, "text/plain; charset=utf-8", "", emptyTags},
+			fileinfoTest{"/foo/new-file", 0655, time3, helloFooSha512, "text/plain; charset=utf-8", "", emptyTags},
+			fileinfoTest{"/foo/new-folder", 0155 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
 		)
 		myT.AssertFiles(newExpected, newV, "after creating files in virtual from")
 		myT.AssertTmpDirFileCount(3, tmp, "after creating in virtual from")
