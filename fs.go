@@ -247,7 +247,7 @@ func (v *Fs) MkdirP(path string, perm os.FileMode, modTime time.Time) error {
 	_, err = v.root.mkdirP(paths, perm, modTime)
 	return err
 }
-func (v *Fs) CreateChild(perm os.FileMode, modTime time.Time) (*myWriteCloser, error) {
+func (v *Fs) CreateChild(perm os.FileMode, modTime time.Time) (*myFile, error) {
 	err := v.checkClosed()
 	if err != nil {
 		return nil, err
@@ -260,7 +260,7 @@ func (v *Fs) CreateChild(perm os.FileMode, modTime time.Time) (*myWriteCloser, e
 
 	return newFileInfo.create()
 }
-func (v *Fs) Create(path string, perm os.FileMode, modTime time.Time) (*myWriteCloser, error) {
+func (v *Fs) Create(path string, perm os.FileMode, modTime time.Time) (*myFile, error) {
 	err := v.checkClosed()
 	if err != nil {
 		return nil, err

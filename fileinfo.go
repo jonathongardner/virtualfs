@@ -124,12 +124,8 @@ func (n *FileInfo) touch(paths []string, perm os.FileMode, modTime time.Time) (*
 	return dir.ref.setChildren(newFileInfo(n.db, name, perm, modTime))
 }
 
-func (n *FileInfo) create() (*myWriteCloser, error) {
-	file, err := n.ref.create(n.db.storageDir)
-	if err != nil {
-		return nil, err
-	}
-	return createMyWriterCloser(n, file), nil
+func (n *FileInfo) create() (*myFile, error) {
+	return createMyWriterCloser(n)
 }
 
 func (n *FileInfo) symlink(oldname string, paths []string, perm os.FileMode, modTime time.Time) (*FileInfo, error) {
