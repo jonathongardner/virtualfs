@@ -6,27 +6,46 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/jonathongardner/virtualfs/filetype"
 	// log "github.com/sirupsen/logrus"
 )
 
+var ErrClosed = fmt.Errorf("virtual file system is closed")
+var ErrChild = fmt.Errorf("virtual file system is a child of another fs")
+
 // Close save the virtual file system to the disk
 func (v *Fs) Close() error {
+	if err := v.isClosed(); err != nil {
+		return err
+	}
+	if err := v.isChild(); err != nil {
+		return err
+	}
+
 	v.closed = true
 	return v.save()
 }
 
-// checkClosed checks if the virtual file system is closed
+// isClosed checks if the virtual file system is closed
 // (i.e. the db has been saved so dont add anything)
-func (v *Fs) checkClosed() error {
+func (v *Fs) isClosed() error {
 	if v.closed {
 		return ErrClosed
 	}
 	return nil
 }
 
+func (v *Fs) isChild() error {
+	if v.parent != nil {
+		return ErrChild
+	}
+	return nil
+}
+
 // FsFrom returns a virtual filesystem from the given path
 func (v *Fs) FsFrom(path string) (*Fs, error) {
-	err := v.checkClosed()
+	err := v.isClosed()
 	if err != nil {
 		return nil, err
 	}
@@ -36,13 +55,13 @@ func (v *Fs) FsFrom(path string) (*Fs, error) {
 		return nil, fmt.Errorf("%v: %v (FsFrom)", err, path)
 	}
 
-	return &Fs{root: newRoot}, nil
+	return &Fs{root: newRoot, parent: v}, nil
 }
 
 // NewFsChild returns the virtual filesystem from the given path
 // creates the directory (and parents) if it does not exist
 func (v *Fs) NewFsChild(path string) (*Fs, error) {
-	err := v.checkClosed()
+	err := v.isClosed()
 	if err != nil {
 		return nil, err
 	}
@@ -57,13 +76,13 @@ func (v *Fs) NewFsChild(path string) (*Fs, error) {
 		return nil, err
 	}
 
-	return &Fs{root: newRoot}, nil
+	return &Fs{root: newRoot, parent: v}, nil
 }
 
 // FsChildren returns the direct children of the filesystem
 func (v *Fs) FsChildren() (toReturn []*Fs) {
 	if v.root.ref.child != nil {
-		toReturn = append(toReturn, &Fs{root: v.root.ref.child})
+		toReturn = append(toReturn, &Fs{root: v.root.ref.child, parent: v})
 	}
 
 	if v.root.ref.children == nil {
@@ -71,7 +90,7 @@ func (v *Fs) FsChildren() (toReturn []*Fs) {
 	}
 
 	for _, n := range v.root.ref.children {
-		toReturn = append(toReturn, &Fs{root: n})
+		toReturn = append(toReturn, &Fs{root: n, parent: v})
 	}
 	return
 }
@@ -132,12 +151,24 @@ func (v *Fs) TagG(key string) (any, bool) {
 	return v.root.tagG(key)
 }
 
+func (v *Fs) ID() string {
+	return v.root.ref.id
+}
+
+func (v *Fs) IsRegular() bool {
+	// different nodes could have different nodes and therefore this could
+	// be different per reference, maybe we should check ref.typ?
+	// return v.root.mode.IsRegular()
+	typ := v.root.ref.typ
+	return typ != filetype.Symlink && typ != filetype.Dir
+}
+
 //--------Root stuff----------
 
 // ---------------------Disk Operations--------------------
 // Stat returns an os.FileInfo like object for the path
 func (v *Fs) Stat(path string) (*FileInfo, error) {
-	err := v.checkClosed()
+	err := v.isClosed()
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +182,7 @@ func (v *Fs) Stat(path string) (*FileInfo, error) {
 
 // StatAt returns an os.FileInfo like object for the path and index (if there are multiple, like for compression)
 func (v *Fs) StatAt(path string, at int) (*FileInfo, error) {
-	err := v.checkClosed()
+	err := v.isClosed()
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +196,7 @@ func (v *Fs) StatAt(path string, at int) (*FileInfo, error) {
 
 // Open returns an os.File for the path
 func (v *Fs) Open(path string) (*os.File, error) {
-	err := v.checkClosed()
+	err := v.isClosed()
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +211,7 @@ func (v *Fs) Open(path string) (*os.File, error) {
 // Path returns the underlying path (for the path given) in the virtual filesystem
 // i.e. the unique file
 func (v *Fs) Path(path string) (string, error) {
-	err := v.checkClosed()
+	err := v.isClosed()
 	if err != nil {
 		return "", err
 	}
@@ -194,7 +225,7 @@ func (v *Fs) Path(path string) (string, error) {
 
 // MkdirP creates a directory and all the parents if they do not exist
 func (v *Fs) MkdirP(path string, perm os.FileMode, modTime time.Time) error {
-	err := v.checkClosed()
+	err := v.isClosed()
 	if err != nil {
 		return err
 	}
@@ -210,7 +241,7 @@ func (v *Fs) MkdirP(path string, perm os.FileMode, modTime time.Time) error {
 // CreateChild creates a file under the root (i.e. for a compression that has a single
 // file, not a path. Like gz vs tar.)
 func (v *Fs) CreateChild(perm os.FileMode, modTime time.Time) (*myFile, error) {
-	err := v.checkClosed()
+	err := v.isClosed()
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +256,7 @@ func (v *Fs) CreateChild(perm os.FileMode, modTime time.Time) (*myFile, error) {
 
 // Create creates a file at the path
 func (v *Fs) Create(path string, perm os.FileMode, modTime time.Time) (*myFile, error) {
-	err := v.checkClosed()
+	err := v.isClosed()
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +279,7 @@ func (v *Fs) Create(path string, perm os.FileMode, modTime time.Time) (*myFile, 
 
 // Symlink creates a symlnk at the path
 func (v *Fs) Symlink(oldname, newname string, perm os.FileMode, modTime time.Time) error {
-	err := v.checkClosed()
+	err := v.isClosed()
 	if err != nil {
 		return err
 	}

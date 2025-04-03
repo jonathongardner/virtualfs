@@ -13,12 +13,12 @@ import (
 
 type Fs struct {
 	root   *FileInfo
+	parent *Fs
 	closed bool
 }
 
 // var root = &Entry{type: filetype.Directory}
 var ErrDontWalk = fmt.Errorf("dont walk entries children")
-var ErrClosed = fmt.Errorf("virtual file system is closed")
 var ErrNotFound = fmt.Errorf("file not found") // https://smyrman.medium.com/writing-constant-errors-with-go-1-13-10c4191617
 var ErrOutsideFilesystem = fmt.Errorf("path is outside of filesystem")
 var ErrInFilesystem = fmt.Errorf("filesystem errors")
@@ -89,6 +89,7 @@ func newFileDirFs(storageDir, filename string, mode os.FileMode, modTime time.Ti
 	return toReturn, nil
 }
 
+// addDirFiles adds all files in the directory to the virtual file system
 func (fs *Fs) addDirFiles(dirPath string, wg *errorWG) error {
 	dirEntries, err := os.ReadDir(dirPath)
 	if err != nil {
@@ -101,6 +102,7 @@ func (fs *Fs) addDirFiles(dirPath string, wg *errorWG) error {
 	return nil
 }
 
+// addEntry adds dir entry to virutal fs and recursively adds subdirectories
 func (fs *Fs) addEntry(dirPath string, dirEntry fs.DirEntry, wg *errorWG) error {
 	name := dirEntry.Name()
 	fullPath := filepath.Join(dirPath, name)

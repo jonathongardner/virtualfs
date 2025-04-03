@@ -50,14 +50,13 @@ func (mf *CachedFile) saveFile() error {
 func (mf *CachedFile) CloseWithRef(ref *reference) error {
 	// TODO: think about using sync/atomic
 	mf.node.ref = mf.node.db.setIfEmpty(ref)
+	// if id is equal then this is the first time we are seeing this file
 	if ref.id == mf.node.ref.id {
-		// think about not saving empty file, though since we share
-		// refences, it will only happen once and updating other code
-		// to handle that might be work then worth...
 		if mf.file == nil {
 			return mf.saveFile()
 		}
 	} else {
+		// else we've seen the file before so delete the file
 		if mf.file != nil {
 			return ref.remove(mf.node.db.storageDir)
 		}
