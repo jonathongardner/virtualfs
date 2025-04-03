@@ -23,6 +23,7 @@ type FileInfo struct {
 	ref         *reference
 }
 
+// newFileInfo creates a new file info object
 func newFileInfo(db *referenceDB, name string, mode os.FileMode, modTime time.Time) *FileInfo {
 	reference := &reference{
 		id:       uuid.New().String(),
@@ -31,6 +32,7 @@ func newFileInfo(db *referenceDB, name string, mode os.FileMode, modTime time.Ti
 	return &FileInfo{db: db, name: name, mode: mode, modTime: modTime, ref: reference}
 }
 
+// newFileInfo creates a new file info object with type Dir
 func newDirFileInfo(db *referenceDB, name string, mode os.FileMode, modTime time.Time) *FileInfo {
 	toReturn := newFileInfo(db, name, mode|fs.ModeDir, modTime)
 	toReturn.ref.typ = filetype.Dir

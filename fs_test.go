@@ -344,3 +344,22 @@ func TestSingleChild(t *testing.T) {
 		myT.AssertErr(ErrAlreadyHasChild, err, "should error if trying to create children on one with child")
 	})
 }
+
+func TestVirtaulWithDir(t *testing.T) {
+	myT := NewMyT("Test virtual Single Child", t)
+	myT.TmpDir(func(tmp string) {
+		v, err := NewFs(tmp, testFolder)
+		myT.FatalfIfErr(err, "failed to create virtual function")
+
+		expected := []fileinfoTest{
+			{"/", 0775 | os.ModeDir, ignoreTime, "", "directory/directory", "", emptyTags},
+			{"/bar", barMod, ignoreTime, barSha512, "application/gzip", "", emptyTags},
+			{"/foo", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags},
+			{"/more", 0775 | os.ModeDir, ignoreTime, "", "directory/directory", "", emptyTags},
+			{"/more/baz", bazMod, ignoreTime, bazSha512, "application/octet-stream", "", emptyTags},
+			{"/more/foo", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags},
+		}
+		myT.AssertFiles(expected, v, "comparing")
+		myT.AssertTmpDirFileCount(3, tmp, "comparing")
+	})
+}
