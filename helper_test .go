@@ -26,7 +26,7 @@ const bazSha512 = "87784f6947fe864688fef50f29004e00e68f79b9a36113b53b4883ae90e0c
 
 var bazMod os.FileMode
 
-func init() {
+func setStats() {
 	fileInfo, err := os.Stat(fooFile)
 	if err != nil {
 		panic(err)
@@ -74,6 +74,7 @@ type MyT struct {
 }
 
 func NewMyT(message string, t *testing.T) *MyT {
+	setStats()
 	return &MyT{message, t}
 }
 

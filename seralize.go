@@ -11,8 +11,16 @@ import (
 	"github.com/jonathongardner/virtualfs/filetype"
 )
 
+func (v *Fs) FinDBPath() string {
+	return v.root.db.finDBPath()
+}
+
+func (v *Fs) DBDir() string {
+	return v.root.db.storageDir
+}
+
 func (v *Fs) save() error {
-	dbFile := filepath.Join(v.root.db.storageDir, "fin.db")
+	dbFile := v.FinDBPath()
 	file, err := os.Create(dbFile)
 	if err != nil {
 		return fmt.Errorf("error opneing file %v - %v", dbFile, err)
@@ -41,7 +49,7 @@ func (v *Fs) save() error {
 func (v *Fs) load(storageDir string) error {
 	db := newReferenceDB(storageDir)
 
-	dbFile := filepath.Join(storageDir, "fin.db")
+	dbFile := db.finDBPath()
 	file, err := os.Open(dbFile)
 	if err != nil {
 		return fmt.Errorf("error opening db file - %v", err)

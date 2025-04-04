@@ -1,6 +1,7 @@
 package virtualfs
 
 import (
+	"path/filepath"
 	"sync"
 )
 
@@ -26,4 +27,8 @@ func (rdb *referenceDB) setIfEmpty(passedRef *reference) (*reference, bool) {
 
 	rdb.refMap[passedRef.sha512] = passedRef
 	return passedRef, true
+}
+
+func (rdb *referenceDB) finDBPath() string {
+	return filepath.Join(rdb.storageDir, "fin.db")
 }
