@@ -79,17 +79,17 @@ func (fs *Fs) addDirFiles(dirPath string, move bool, wg *errorWG) error {
 	}
 
 	for _, dirEntry := range dirEntries {
-		wg.run(func() error {
-			name := dirEntry.Name()
-			fileInfo, err := dirEntry.Info()
-			if err != nil {
-				return fmt.Errorf("couldn't get file info (%v/%v) - %v", dirPath, name, err)
-			}
+		name := dirEntry.Name()
+		fileInfo, err := dirEntry.Info()
+		if err != nil {
+			return fmt.Errorf("couldn't get file info (%v/%v) - %v", dirPath, name, err)
+		}
 
-			newFs, err := fs.smartNewFs(name, fileInfo.Mode(), fileInfo.ModTime())
-			if err != nil {
-				return err
-			}
+		newFs, err := fs.smartNewFs(name, fileInfo.Mode(), fileInfo.ModTime())
+		if err != nil {
+			return err
+		}
+		wg.run(func() error {
 			return newFs.addEntry(filepath.Join(dirPath, name), move, wg)
 		})
 	}
