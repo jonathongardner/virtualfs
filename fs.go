@@ -3,7 +3,6 @@ package virtualfs
 import (
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -30,119 +29,125 @@ func NewFsFromDb(storageDir string) (*Fs, error) {
 }
 
 // NewFs creates a new virtual file system from a file or stdin
-func NewFs(storageDir, rootPath string) (*Fs, error) {
+func NewFs(storageDir, rootPath string, move bool) (*Fs, error) {
 	err := os.Mkdir(storageDir, 0755)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create storage dir: %v", err)
 	}
 
 	if rootPath == "" {
-		return newFileFs(storageDir, "stdin", 0755, time.Now(), os.Stdin)
+		if move {
+			return nil, fmt.Errorf("stdin not supported with move")
+		}
+		fs := smartNewFs(storageDir, "stdin", 0755, time.Now())
+		if err := fs.copyReader(os.Stdin); err != nil {
+			return nil, fmt.Errorf("couldn't copy stdin - %v", err)
+		}
+		return fs, nil
 	}
 
-	fileToCopy, err := os.Open(rootPath)
-	if err != nil {
-		return nil, fmt.Errorf("couldn't open path (%v) - %v", rootPath, err)
-	}
-	defer fileToCopy.Close()
-
-	fileInfo, err := fileToCopy.Stat()
+	fileInfo, err := os.Stat(rootPath)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't get path info (%v) - %v", rootPath, err)
 	}
-	if !fileInfo.IsDir() {
-		return newFileFs(storageDir, path.Base(rootPath), fileInfo.Mode(), fileInfo.ModTime(), fileToCopy)
-	}
 
-	return newFileDirFs(storageDir, path.Base(rootPath), fileInfo.Mode(), fileInfo.ModTime(), rootPath)
-}
-
-// newFileFs creates the the virtual file system copies the file to the virtual system
-func newFileFs(storageDir, filename string, mode os.FileMode, modTime time.Time, reader io.Reader) (*Fs, error) {
-	toReturn := &Fs{root: newFileInfo(newReferenceDB(storageDir), filename, mode, modTime)}
-
-	writer, err := toReturn.root.create()
-	if err != nil {
-		return nil, err
-	}
-	defer writer.Close()
-
-	_, err = io.Copy(writer, reader)
-	if err != nil {
-		return nil, fmt.Errorf("couldn't copy file (%v) - %v", filename, err)
-	}
-
-	return toReturn, nil
-}
-
-// newFileDirFs creates the virtual file system from the dir
-func newFileDirFs(storageDir, filename string, mode os.FileMode, modTime time.Time, dir string) (*Fs, error) {
-	toReturn := &Fs{root: newDirFileInfo(newReferenceDB(storageDir), filename, mode, modTime)}
+	fs := smartNewFs(storageDir, path.Base(rootPath), fileInfo.Mode(), fileInfo.ModTime())
 
 	wg := newErrorWG()
-	wg.run(func() error { return toReturn.addDirFiles(dir, wg) })
-	err := wg.wait()
+	wg.run(func() error { return fs.addEntry(rootPath, move, wg) })
+	err = wg.wait()
 	if err != nil {
 		return nil, err
 	}
 
-	return toReturn, nil
+	return fs, nil
+}
+
+func smartNewFs(storageDir, filename string, mode os.FileMode, modTime time.Time) *Fs {
+	toReturn := &Fs{root: newFileInfo(newReferenceDB(storageDir), filename, mode, modTime)}
+	if mode.IsDir() {
+		toReturn.root.setToDir()
+	}
+	return toReturn
 }
 
 // addDirFiles adds all files in the directory to the virtual file system
-func (fs *Fs) addDirFiles(dirPath string, wg *errorWG) error {
+func (fs *Fs) addDirFiles(dirPath string, move bool, wg *errorWG) error {
 	dirEntries, err := os.ReadDir(dirPath)
 	if err != nil {
 		return fmt.Errorf("couldn't read dir (%v) - %v", dirPath, err)
 	}
 
 	for _, dirEntry := range dirEntries {
-		wg.run(func() error { return fs.addEntry(dirPath, dirEntry, wg) })
+		wg.run(func() error {
+			name := dirEntry.Name()
+			fileInfo, err := dirEntry.Info()
+			if err != nil {
+				return fmt.Errorf("couldn't get file info (%v/%v) - %v", dirPath, name, err)
+			}
+
+			newFs, err := fs.smartNewFs(name, fileInfo.Mode(), fileInfo.ModTime())
+			if err != nil {
+				return err
+			}
+			return newFs.addEntry(filepath.Join(dirPath, name), move, wg)
+		})
 	}
 	return nil
 }
 
 // addEntry adds dir entry to virutal fs and recursively adds subdirectories
-func (fs *Fs) addEntry(dirPath string, dirEntry fs.DirEntry, wg *errorWG) error {
-	name := dirEntry.Name()
-	fullPath := filepath.Join(dirPath, name)
-	fileInfo, err := dirEntry.Info()
+func (fs *Fs) addEntry(path string, move bool, wg *errorWG) error {
+	if fs.root.IsDir() {
+		return fs.addDirFiles(path, move, wg)
+	}
+
+	// Copy the contents of the file to the virtual filesystem
+	srcFile, err := os.Open(path)
 	if err != nil {
-		return fmt.Errorf("couldn't get file info (%v) - %v", fullPath, err)
+		return fmt.Errorf("couldn't open file (%v) - %v", path, err)
+	}
+	defer srcFile.Close()
+
+	if move {
+		err = fs.moveReader(path, srcFile)
+	} else {
+		err = fs.copyReader(srcFile)
+	}
+	if err != nil {
+		return fmt.Errorf("couldn't copy file (%v) - %v", path, err)
 	}
 
-	if dirEntry.IsDir() {
-		// Recursively add subdirectories
-		err := fs.MkdirP(name, fileInfo.Mode(), fileInfo.ModTime())
-		if err != nil {
-			return err
-		}
-		newFs, err := fs.FsFrom(name)
-		if err != nil {
-			return err
-		}
+	return nil
+}
 
-		wg.run(func() error { return newFs.addDirFiles(fullPath, wg) })
-		return nil
-	}
-
-	// Create a new file in the virtual filesystem
-	newFile, err := fs.Create(name, fileInfo.Mode(), fileInfo.ModTime())
+// copyReader copies the contents of a reader to the virtual filesystem
+func (fs *Fs) moveReader(path string, src io.Reader) error {
+	newFile, err := fs.root.createMv(path)
 	if err != nil {
 		return err
 	}
 	defer newFile.Close()
 
-	// Copy the contents of the file to the virtual filesystem
-	srcFile, err := os.Open(fullPath)
+	_, err = io.Copy(newFile, src)
 	if err != nil {
-		return fmt.Errorf("couldn't open file (%v) - %v", fullPath, err)
+		return err
 	}
-	defer srcFile.Close()
 
-	_, err = io.Copy(newFile, srcFile)
+	return nil
+}
+
+// copyReader copies the contents of a reader to the virtual filesystem
+func (fs *Fs) copyReader(src io.Reader) error {
+	newFile, err := fs.root.create()
 	if err != nil {
-		return fmt.Errorf("couldn't copy file (%v) - %v", fullPath, err)
+		return err
+	}
+	defer newFile.Close()
+
+	_, err = io.Copy(newFile, src)
+	if err != nil {
+		return err
 	}
 
 	return nil

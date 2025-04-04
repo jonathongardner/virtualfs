@@ -58,6 +58,21 @@ func (v *Fs) FsFrom(path string) (*Fs, error) {
 	return &Fs{root: newRoot, parent: v}, nil
 }
 
+// smartNewFs returns the virtual filesystem from the given path
+// creates the directory (and parents) if it does not exist
+// if will also set the type to directory if the mode is a directory
+func (v *Fs) smartNewFs(path string, mode os.FileMode, mtime time.Time) (*Fs, error) {
+	newRoot, err := v.root.touch([]string{path}, mode, mtime)
+	if err != nil {
+		return nil, err
+	}
+	if mode.IsDir() {
+		newRoot.setToDir()
+	}
+
+	return &Fs{root: newRoot, parent: v}, nil
+}
+
 // NewFsChild returns the virtual filesystem from the given path
 // creates the directory (and parents) if it does not exist
 func (v *Fs) NewFsChild(path string) (*Fs, error) {
@@ -161,6 +176,10 @@ func (v *Fs) IsRegular() bool {
 	// return v.root.mode.IsRegular()
 	typ := v.root.ref.typ
 	return typ != filetype.Symlink && typ != filetype.Dir
+}
+
+func (v *Fs) OpenFile() (*os.File, error) {
+	return v.root.Open()
 }
 
 //--------Root stuff----------

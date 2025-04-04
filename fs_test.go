@@ -48,7 +48,7 @@ func createChildFile(v *Fs, perm os.FileMode, modTime time.Time, content string)
 func TestVirtual(t *testing.T) {
 	myT := NewMyT("Test Virtual", t)
 	myT.TmpDir(func(tmp string) {
-		v, err := NewFs(tmp, fooFile)
+		v, err := NewFs(tmp, fooFile, false)
 		myT.FatalfIfErr(err, "Failed to create virtual function")
 
 		expected := []fileinfoTest{{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags}}
@@ -128,7 +128,7 @@ func TestVirtual(t *testing.T) {
 func TestVirtualUsesReferencesForSameFile(t *testing.T) {
 	myT := NewMyT("Test virtual uses references for same file", t)
 	myT.TmpDir(func(tmp string) {
-		v, err := NewFs(tmp, fooFile)
+		v, err := NewFs(tmp, fooFile, false)
 		myT.FatalfIfErr(err, "failed to create virtual function")
 
 		err = createFile(v, "/bar", 0655, time1, "Hello, World!")
@@ -159,7 +159,7 @@ func TestVirtualUsesReferencesForSameFile(t *testing.T) {
 func TestVirtualDoesntAllowMovingOutsideFS(t *testing.T) {
 	myT := NewMyT("Test virtual doesnt allow moving outside filesystem", t)
 	myT.TmpDir(func(tmp string) {
-		v, err := NewFs(tmp, fooFile)
+		v, err := NewFs(tmp, fooFile, false)
 		myT.FatalfIfErr(err, "failed to create virtual function")
 
 		_, err = v.Create("/bad/../not-cool/../../really", 0000, time1)
@@ -191,7 +191,7 @@ func TestVirtualDoesntAllowMovingOutsideFS(t *testing.T) {
 func TestVirtualOverwriteFileWithDir(t *testing.T) {
 	myT := NewMyT("Test virtual overwrites file with dir", t)
 	myT.TmpDir(func(tmp string) {
-		v, err := NewFs(tmp, fooFile)
+		v, err := NewFs(tmp, fooFile, false)
 		myT.FatalfIfErr(err, "failed to create virtual function")
 
 		err = createFile(v, "/bar", 0655, time1, "Hello, World!")
@@ -217,7 +217,7 @@ func TestVirtualOverwriteFileWithDir(t *testing.T) {
 func TestVirtualFrom(t *testing.T) {
 	myT := NewMyT("Test virtual from", t)
 	myT.TmpDir(func(tmp string) {
-		v, err := NewFs(tmp, fooFile)
+		v, err := NewFs(tmp, fooFile, false)
 		myT.FatalfIfErr(err, "failed to create virtual function")
 
 		err = createFile(v, "/bar", 0655, time1, "Hello, World!")
@@ -245,7 +245,7 @@ func TestVirtualFrom(t *testing.T) {
 func TestTags(t *testing.T) {
 	myT := NewMyT("Test Tags", t)
 	myT.TmpDir(func(tmp string) {
-		v, err := NewFs(tmp, fooFile)
+		v, err := NewFs(tmp, fooFile, false)
 		myT.FatalfIfErr(err, "failed to create virtual function")
 
 		_, ok := v.TagG("foo")
@@ -278,7 +278,7 @@ func TestTags(t *testing.T) {
 func TestWalk(t *testing.T) {
 	myT := NewMyT("Test Walk", t)
 	myT.TmpDir(func(tmp string) {
-		v, err := NewFs(tmp, fooFile)
+		v, err := NewFs(tmp, fooFile, false)
 		myT.FatalfIfErr(err, "failed to create virtual function")
 
 		v.MkdirP("/foo1/foo2", 0755, time1)
@@ -293,7 +293,7 @@ func TestWalk(t *testing.T) {
 func TestSingleChild(t *testing.T) {
 	myT := NewMyT("Test virtual Single Child", t)
 	myT.TmpDir(func(tmp string) {
-		v, err := NewFs(tmp, fooFile)
+		v, err := NewFs(tmp, fooFile, false)
 		myT.FatalfIfErr(err, "failed to create virtual function")
 
 		err = createFile(v, "/bar", 0655, time1, "Hello, World!")
@@ -348,7 +348,7 @@ func TestSingleChild(t *testing.T) {
 func TestVirtaulWithDir(t *testing.T) {
 	myT := NewMyT("Test virtual Single Child", t)
 	myT.TmpDir(func(tmp string) {
-		v, err := NewFs(tmp, testFolder)
+		v, err := NewFs(tmp, testFolder, false)
 		myT.FatalfIfErr(err, "failed to create virtual function")
 
 		expected := []fileinfoTest{

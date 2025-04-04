@@ -31,19 +31,16 @@ func newFileInfo(db *referenceDB, name string, mode os.FileMode, modTime time.Ti
 	}
 	return &FileInfo{db: db, name: name, mode: mode, modTime: modTime, ref: reference}
 }
-
-// newFileInfo creates a new file info object with type Dir
-func newDirFileInfo(db *referenceDB, name string, mode os.FileMode, modTime time.Time) *FileInfo {
-	toReturn := newFileInfo(db, name, mode|fs.ModeDir, modTime)
-	toReturn.ref.typ = filetype.Dir
-	return toReturn
+func (n *FileInfo) setToDir() *FileInfo {
+	n.mode |= fs.ModeDir
+	n.ref.typ = filetype.Dir
+	return n
 }
-
-func newSymlinkFileInfo(db *referenceDB, oldname, name string, mode os.FileMode, modTime time.Time) *FileInfo {
-	toReturn := newFileInfo(db, name, mode|fs.ModeSymlink, modTime)
-	toReturn.ref.typ = filetype.Symlink
-	toReturn.symlinkPath = oldname
-	return toReturn
+func (n *FileInfo) setToSym(oldname string) *FileInfo {
+	n.mode |= fs.ModeSymlink
+	n.ref.typ = filetype.Symlink
+	n.symlinkPath = oldname
+	return n
 }
 func (n *FileInfo) error(err error) {
 	n.ref.err = err
@@ -65,6 +62,15 @@ func (n *FileInfo) tagSIfBlank(key string, value any) error {
 }
 func (n *FileInfo) tagG(key string) (any, bool) {
 	return n.ref.tags.Load(key)
+}
+
+// updateIfDuplicateRef if sha512 already seen it will use that ref and return true
+// if its the first time we see the sha512 then dont change anything and return false
+func (n *FileInfo) updateIfDuplicateRef() bool {
+	var set bool
+	n.ref, set = n.db.setIfEmpty(n.ref)
+	// if its no new than it was updated
+	return !set
 }
 
 // ---------------------Disk Operations--------------------
@@ -101,7 +107,7 @@ func (n *FileInfo) mkdirP(paths []string, perm os.FileMode, modTime time.Time) (
 	}
 	if child == nil || child.ref.typ != filetype.Dir {
 		// NOTE:orphan if the child is not a directory then we could orphan a file if its not used anywhere else
-		child, err = n.ref.setChildren(newDirFileInfo(n.db, firstPath, perm, modTime))
+		child, err = n.ref.setChildren(newFileInfo(n.db, firstPath, perm, modTime).setToDir())
 		// shouldnt happen since `getChild` would have returned error first but in case logic changes in setChild
 		if err != nil {
 			return nil, err
@@ -127,7 +133,11 @@ func (n *FileInfo) touch(paths []string, perm os.FileMode, modTime time.Time) (*
 }
 
 func (n *FileInfo) create() (*myFile, error) {
-	return createMyWriterCloser(n)
+	return createMyWriterCloser(n, defaultCacheFile(n.Path()))
+}
+
+func (n *FileInfo) createMv(originalPath string) (*myFile, error) {
+	return createMyWriterCloser(n, defaultMvFile(n.Path(), originalPath))
 }
 
 func (n *FileInfo) symlink(oldname string, paths []string, perm os.FileMode, modTime time.Time) (*FileInfo, error) {
@@ -143,7 +153,7 @@ func (n *FileInfo) symlink(oldname string, paths []string, perm os.FileMode, mod
 		return nil, err
 	}
 	// NOTE: orphan this could orphin some references, might want to clean up if reference is not needed
-	return dir.ref.setChildren(newSymlinkFileInfo(n.db, oldname, name, perm, modTime))
+	return dir.ref.setChildren(newFileInfo(n.db, name, perm, modTime).setToSym(oldname))
 }
 
 // ---------------------Disk Operations--------------------

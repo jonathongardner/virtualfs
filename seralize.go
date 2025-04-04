@@ -166,6 +166,7 @@ func mapToFileInfo(db *referenceDB, data map[string]any) (*FileInfo, error) {
 	}
 
 	ref := &reference{children: make(map[string]*FileInfo)}
+	n.ref = ref
 
 	ref.id, ok = data["id"].(string)
 	if !ok {
@@ -254,7 +255,7 @@ func mapToFileInfo(db *referenceDB, data map[string]any) (*FileInfo, error) {
 			return nil, fmt.Errorf("error getting file %v", err)
 		}
 		// if sha512 already seen it will return that reference otherwise it creates a new one
-		n.ref = db.setIfEmpty(ref)
+		n.updateIfDuplicateRef()
 	}
 
 	return n, nil

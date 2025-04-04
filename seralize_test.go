@@ -12,7 +12,7 @@ func TestVirtualClose(t *testing.T) {
 	myT := NewMyT("Test Virtual Close", t)
 	myT.TmpDir(func(tmp string) {
 		//------------ Setup Filesystem
-		v, err := NewFs(tmp, fooFile)
+		v, err := NewFs(tmp, fooFile, false)
 		myT.FatalfIfErr(err, "Failed to create virtual function")
 
 		v.TagS("foo", "bar")
@@ -97,7 +97,7 @@ func TestVirtualCloseWithErr(t *testing.T) {
 	myT := NewMyT("Test Virtual Close", t)
 	myT.TmpDir(func(tmp string) {
 		//------------ Setup Filesystem
-		v, err := NewFs(tmp, fooFile)
+		v, err := NewFs(tmp, fooFile, false)
 		myT.FatalfIfErr(err, "Failed to create virtual function")
 
 		err = v.MkdirP("/foo", 0755, time1)
