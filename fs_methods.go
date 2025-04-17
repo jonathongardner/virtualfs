@@ -2,17 +2,16 @@ package virtualfs
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/jonathongardner/fifo"
 	"github.com/jonathongardner/virtualfs/filetype"
 	// log "github.com/sirupsen/logrus"
 )
-
-var ErrClosed = fmt.Errorf("virtual file system is closed")
-var ErrChild = fmt.Errorf("virtual file system is a child of another fs")
 
 // Close save the virtual file system to the disk
 func (v *Fs) Close() error {
@@ -23,14 +22,32 @@ func (v *Fs) Close() error {
 		return err
 	}
 
-	v.closed = true
-	return v.save()
+	db := v.root.db
+	if db.wf != nil {
+		// dont save if read only
+		if err := v.save(); err != nil {
+			return err
+		}
+
+		if err := db.wf.Close(); err != nil {
+			return fmt.Errorf("error closing file %v", err)
+		}
+		db.wf = nil
+	}
+	if db.bfp != nil {
+		if err := db.bfp.Cleanup(); err != nil {
+			return fmt.Errorf("error cleaning up file read pool %v", err)
+		}
+		db.bfp = nil
+	}
+
+	return nil
 }
 
 // isClosed checks if the virtual file system is closed
 // (i.e. the db has been saved so dont add anything)
 func (v *Fs) isClosed() error {
-	if v.closed {
+	if v.root.db.bfp == nil {
 		return ErrClosed
 	}
 	return nil
@@ -53,21 +70,6 @@ func (v *Fs) FsFrom(path string) (*Fs, error) {
 	newRoot, _, err := v.fileInfoFrom(path, -1)
 	if err != nil {
 		return nil, fmt.Errorf("%v: %v (FsFrom)", err, path)
-	}
-
-	return &Fs{root: newRoot, parent: v}, nil
-}
-
-// smartNewFs returns the virtual filesystem from the given path
-// creates the directory (and parents) if it does not exist
-// if will also set the type to directory if the mode is a directory
-func (v *Fs) smartNewFs(path string, mode os.FileMode, mtime time.Time) (*Fs, error) {
-	newRoot, err := v.root.touch([]string{path}, mode, mtime)
-	if err != nil {
-		return nil, err
-	}
-	if mode.IsDir() {
-		newRoot.setToDir()
 	}
 
 	return &Fs{root: newRoot, parent: v}, nil
@@ -142,28 +144,30 @@ func (v *Fs) ProcessWarning() error {
 	return nil
 }
 
-// LocalPath returns the underlying path to this file in the virtual filesystem
-// i.e. the unique file
-func (v *Fs) LocalPath() string {
-	return v.root.Path()
-}
-
 // TagS set a tag on this filesystem
 // Note: its on the "reference" so same sha/data will have same tags
 // mostly can be used for marking what extracter was used
 func (v *Fs) TagS(key string, value any) {
-	v.root.tagS(key, value)
+	v.root.TagS(key, value)
 }
 
 // TagSIfBlank set a tag on this filesystem if its not been set yet,
 // if it has it will raise an error. Multithreaded safe.
 func (v *Fs) TagSIfBlank(key string, value any) error {
-	return v.root.tagSIfBlank(key, value)
+	return v.root.TagSIfBlank(key, value)
 }
 
 // TagG: Get a tag, returns false if not found
 func (v *Fs) TagG(key string) (any, bool) {
-	return v.root.tagG(key)
+	return v.root.TagG(key)
+}
+
+func (v *Fs) TagD(key string) (any, bool) {
+	val, ok := v.TagG(key)
+	if ok {
+		v.root.TagD(key)
+	}
+	return val, ok
 }
 
 func (v *Fs) ID() string {
@@ -177,9 +181,15 @@ func (v *Fs) IsRegular() bool {
 	typ := v.root.ref.typ
 	return typ != filetype.Symlink && typ != filetype.Dir
 }
-
-func (v *Fs) OpenFile() (*os.File, error) {
+func (v *Fs) IsDirFs() bool {
+	return v.root.mode.IsDir()
+}
+func (v *Fs) OpenFS() (fifo.ReadCloseReseter, error) {
 	return v.root.Open()
+}
+
+func (v *Fs) CopyToFs(r io.Reader) error {
+	return v.root.Copy(r)
 }
 
 //--------Root stuff----------
@@ -214,7 +224,7 @@ func (v *Fs) StatAt(path string, at int) (*FileInfo, error) {
 }
 
 // Open returns an os.File for the path
-func (v *Fs) Open(path string) (*os.File, error) {
+func (v *Fs) Open(path string) (io.ReadCloser, error) {
 	err := v.isClosed()
 	if err != nil {
 		return nil, err
@@ -227,39 +237,24 @@ func (v *Fs) Open(path string) (*os.File, error) {
 	return toWalk.Open()
 }
 
-// Path returns the underlying path (for the path given) in the virtual filesystem
-// i.e. the unique file
-func (v *Fs) Path(path string) (string, error) {
-	err := v.isClosed()
-	if err != nil {
-		return "", err
-	}
-
-	toWalk, _, err := v.fileInfoFrom(path, -1)
-	if err != nil {
-		return "", err
-	}
-	return toWalk.Path(), nil
-}
-
 // MkdirP creates a directory and all the parents if they do not exist
-func (v *Fs) MkdirP(path string, perm os.FileMode, modTime time.Time) error {
+func (v *Fs) MkdirP(path string, perm os.FileMode, modTime time.Time) (*FileInfo, error) {
 	err := v.isClosed()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	paths, err := split(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	_, err = v.root.mkdirP(paths, perm, modTime)
-	return err
+	return v.root.mkdirP(paths, perm, modTime)
 }
 
 // CreateChild creates a file under the root (i.e. for a compression that has a single
 // file, not a path. Like gz vs tar.)
-func (v *Fs) CreateChild(perm os.FileMode, modTime time.Time) (*myFile, error) {
+// If the file is new and the reader isnt a seeker too a ErrCantWriteNewFile will be returned
+func (v *Fs) CopyToChild(perm os.FileMode, modTime time.Time, rs io.Reader) (*FileInfo, error) {
 	err := v.isClosed()
 	if err != nil {
 		return nil, err
@@ -270,11 +265,12 @@ func (v *Fs) CreateChild(perm os.FileMode, modTime time.Time) (*myFile, error) {
 		return nil, err
 	}
 
-	return newFileInfo.create()
+	return newFileInfo, newFileInfo.copy(rs)
 }
 
 // Create creates a file at the path
-func (v *Fs) Create(path string, perm os.FileMode, modTime time.Time) (*myFile, error) {
+// If the file is new and the reader isnt a seeker too a ErrCantWriteNewFile will be returned
+func (v *Fs) CopyTo(path string, perm os.FileMode, modTime time.Time, rs io.Reader) (*FileInfo, error) {
 	err := v.isClosed()
 	if err != nil {
 		return nil, err
@@ -293,26 +289,25 @@ func (v *Fs) Create(path string, perm os.FileMode, modTime time.Time) (*myFile, 
 		return nil, err
 	}
 
-	return newFileInfo.create()
+	return newFileInfo, newFileInfo.copy(rs)
 }
 
 // Symlink creates a symlnk at the path
-func (v *Fs) Symlink(oldname, newname string, perm os.FileMode, modTime time.Time) error {
+func (v *Fs) Symlink(oldname, newname string, perm os.FileMode, modTime time.Time) (*FileInfo, error) {
 	err := v.isClosed()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	paths, err := split(newname)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(paths) == 0 {
 		panic("path shoudnt be empty")
 	}
 
-	_, err = v.root.symlink(oldname, paths, perm, modTime)
-	return err
+	return v.root.symlink(oldname, paths, perm, modTime)
 }
 
 // ---------------------Disk Operations--------------------

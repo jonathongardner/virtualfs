@@ -14,16 +14,19 @@ const testFolder = "testdata/foo-folder"
 const fooFile = "testdata/foo"
 const fooSha512 = "0f5623276549769a63c79ca20fc573518685819fe82b39f43a3e7cf709c8baa16524daa95e006e81f7267700a88adee8a6209201be960a10c81c35ff3547e3b7"
 
+var fooSize int64
 var fooMod os.FileMode
 
 const barFile = testFolder + "/bar"
 const barSha512 = "c971808ecc8c67052f1ccce75ca3ac57c75cad6abc1ce7767f7ca515aac311897478eb126dfa1d94042f3881e6fd09bca779dc274938dcaa828fc08ecec94315"
 
+var barSize int64
 var barMod os.FileMode
 
 const bazFile = testFolder + "/more/baz"
 const bazSha512 = "87784f6947fe864688fef50f29004e00e68f79b9a36113b53b4883ae90e0cdf0d7612dcd95079daed17caf9a2b66b0d2f06a7e1ee0984186ca755121f5216894"
 
+var bazSize int64
 var bazMod os.FileMode
 
 func setStats() {
@@ -32,18 +35,21 @@ func setStats() {
 		panic(err)
 	}
 	fooMod = fileInfo.Mode()
+	fooSize = fileInfo.Size()
 
 	fileInfo, err = os.Stat(barFile)
 	if err != nil {
 		panic(err)
 	}
 	barMod = fileInfo.Mode()
+	barSize = fileInfo.Size()
 
 	fileInfo, err = os.Stat(bazFile)
 	if err != nil {
 		panic(err)
 	}
 	bazMod = fileInfo.Mode()
+	bazSize = fileInfo.Size()
 }
 
 var ignoreTime = time.Date(0, 0, 0, 0, 0, 0, 0, time.UTC)
@@ -161,7 +167,7 @@ func (t *MyT) AssertFiles(expectedFileInfo []fileinfoTest, v *Fs, format string,
 		count++
 		return nil
 	})
-	t.AssertEqual(0, len(expectedFileInfo), "recieved more paths then expected")
+	t.AssertEqual(len(expectedFileInfo), 0, "recieved more paths then expected")
 }
 func (t *MyT) AssertPaths(expectedPaths []string, v *Fs, format string, args ...interface{}) {
 	str := fmt.Sprintf(format, args...)
@@ -180,20 +186,20 @@ func (t *MyT) AssertPaths(expectedPaths []string, v *Fs, format string, args ...
 //--------------------------Fs file------------------
 
 // --------------------------Tmp Dir------------------
-func (t *MyT) AssertTmpDirFileCount(expCnt int, tmp string, format string, args ...interface{}) {
+func (t *MyT) AssertArchiveSize(expCnt int64, tmp string, format string, args ...interface{}) {
 	str := fmt.Sprintf(format, args...)
 
-	d, err := os.ReadDir(tmp)
-	t.FatalfIfErr(err, "%v failed to read dir", str)
+	d, err := os.Stat(tmp)
+	t.FatalfIfErr(err, "%v failed to read file stats", str)
 
-	t.AssertEqual(expCnt, len(d), "%v, file count doesnt match", str)
+	t.AssertEqual(expCnt, d.Size(), "%v, file count doesnt match", str)
 }
 
-func (t *MyT) TmpDir(fnc func(tmp string)) {
+func (t *MyT) TmpFile(fnc func(tmp string)) {
 	dname, err := os.MkdirTemp("", "virtual-testing")
 	t.FatalfIfErr(err, "Failed to create tmp dir for testing")
 	defer os.RemoveAll(dname)
-	fnc(filepath.Join(dname, "forklift"))
+	fnc(filepath.Join(dname, "archive.fkl"))
 }
 
 // --------------------------Tmp Dir------------------

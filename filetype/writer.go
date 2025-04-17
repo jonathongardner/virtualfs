@@ -34,6 +34,6 @@ func (mw *FiletypeWriter) Write(p []byte) (n int, err error) {
 	return len, nil
 }
 
-func (mw *FiletypeWriter) String() Filetype {
+func (mw *FiletypeWriter) Type() Filetype {
 	return newFiletype(mimetype.Detect(mw.data))
 }

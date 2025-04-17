@@ -1,9 +1,14 @@
 package virtualfs
 
 import (
+	"crypto/sha512"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -12,44 +17,36 @@ import (
 // const bazFile = "testdata/baz"
 
 func createFile(v *Fs, path string, perm os.FileMode, modTime time.Time, content string) error {
-	file, err := v.Create(path, perm, modTime)
+	_, err := v.CopyTo(path, perm, modTime, strings.NewReader(content))
 	if err != nil {
 		return fmt.Errorf("failed to create virtual file  %v", err)
-	}
-	_, err = file.Write([]byte(content))
-	if err != nil {
-		return fmt.Errorf("failed to write to virtual file %v", err)
-	}
-	err = file.Close()
-	if err != nil {
-		return fmt.Errorf("failed to close virtual file %v", err)
 	}
 
 	return nil
 }
 
 func createChildFile(v *Fs, perm os.FileMode, modTime time.Time, content string) error {
-	file, err := v.CreateChild(perm, modTime)
+	_, err := v.CopyToChild(perm, modTime, strings.NewReader(content))
 	if err != nil {
 		return fmt.Errorf("failed to create virtual file  %v", err)
-	}
-	_, err = file.Write([]byte(content))
-	if err != nil {
-		return fmt.Errorf("failed to write to virtual file %v", err)
-	}
-	err = file.Close()
-	if err != nil {
-		return fmt.Errorf("failed to close virtual file %v", err)
 	}
 
 	return nil
 }
 
-func TestVirtual(t *testing.T) {
+func TestVirtualZ(t *testing.T) {
 	myT := NewMyT("Test Virtual", t)
-	myT.TmpDir(func(tmp string) {
-		v, err := NewFs(tmp, fooFile, false)
+	myT.TmpFile(func(tmp string) {
+		file, err := os.Open(fooFile)
+		myT.FatalfIfErr(err, "failed to open foo file")
+
+		fileinfo, err := file.Stat()
+		myT.FatalfIfErr(err, "failed to stat foo file")
+
+		v, err := NewFsFromFileInfo(tmp, fileinfo, false)
 		myT.FatalfIfErr(err, "Failed to create virtual function")
+
+		v.CopyToFs(file)
 
 		expected := []fileinfoTest{{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags}}
 		myT.AssertFiles(expected, v, "Initial")
@@ -73,7 +70,7 @@ func TestVirtual(t *testing.T) {
 			{"/foo1/foo2/foo3/foo4", 0700 | fs.ModeDir, time2, "", "directory/directory", "", emptyTags},
 		}
 		myT.AssertFiles(expected, v, "after creating foo1/foo2/foo3/foo4")
-		myT.AssertTmpDirFileCount(1, tmp, "after creating foo1/foo2/foo3/foo4")
+		myT.AssertArchiveSize(fooSize, tmp, "after creating foo1/foo2/foo3/foo4")
 
 		// Create a file
 		err = createFile(v, "/foo1/foo2/foo3/bar", 0655, time3, "Hello, World!")
@@ -88,7 +85,7 @@ func TestVirtual(t *testing.T) {
 			{"/foo1/foo2/foo3/foo4", 0700 | fs.ModeDir, time2, "", "directory/directory", "", emptyTags},
 		}
 		myT.AssertFiles(expected, v, "after creating foo1/foo2/foo3/bar")
-		myT.AssertTmpDirFileCount(2, tmp, "after creating foo1/foo2/foo3/bar")
+		myT.AssertArchiveSize(fooSize+13, tmp, "after creating foo1/foo2/foo3/bar")
 
 		// Create a symlink
 		err = v.Symlink("/foo1/foo2/foo3/bar", "/foo1/foo2/symlink-bar", 0700, time1)
@@ -104,7 +101,7 @@ func TestVirtual(t *testing.T) {
 			{"/foo1/foo2/symlink-bar", 0700 | fs.ModeSymlink, time1, "", "symlink/symlink", "/foo1/foo2/foo3/bar", emptyTags},
 		}
 		myT.AssertFiles(expected, v, "after creating /foo1/foo2/symlink-bar")
-		myT.AssertTmpDirFileCount(2, tmp, "after creating /foo1/foo2/symlink-bar")
+		myT.AssertArchiveSize(fooSize+13, tmp, "after creating /foo1/foo2/symlink-bar")
 
 		// Create a symlink to nowhere
 		err = v.Symlink("/cool/beans/who-cares", "/foo1/foo2/symlink-nowhere", 0777, time2)
@@ -121,15 +118,31 @@ func TestVirtual(t *testing.T) {
 			{"/foo1/foo2/symlink-nowhere", 0777 | fs.ModeSymlink, time2, "", "symlink/symlink", "/cool/beans/who-cares", emptyTags},
 		}
 		myT.AssertFiles(expected, v, "after creating /foo1/foo2/symlink-nowhere")
-		myT.AssertTmpDirFileCount(2, tmp, "after creating /foo1/foo2/symlink-nowhere")
+		myT.AssertArchiveSize(fooSize+13, tmp, "after creating /foo1/foo2/symlink-nowhere")
+
+		f, err := v.Open("/foo1/foo2/foo3/bar")
+		myT.FatalfIfErr(err, "failed to open /foo1/foo2/foo3/bar")
+		defer f.Close()
+		ch := sha512.New()
+		_, err = io.Copy(ch, f)
+		myT.FatalfIfErr(err, "failed to copy /foo1/foo2/foo3/bar")
+		myT.AssertEqual(helloWorldSha512, hex.EncodeToString(ch.Sum(nil)), "sha512 mismatch on /foo1/foo2/foo3/bar")
 	})
 }
 
 func TestVirtualUsesReferencesForSameFile(t *testing.T) {
 	myT := NewMyT("Test virtual uses references for same file", t)
-	myT.TmpDir(func(tmp string) {
-		v, err := NewFs(tmp, fooFile, false)
-		myT.FatalfIfErr(err, "failed to create virtual function")
+	myT.TmpFile(func(tmp string) {
+		file, err := os.Open(fooFile)
+		myT.FatalfIfErr(err, "failed to open foo file")
+
+		fileinfo, err := file.Stat()
+		myT.FatalfIfErr(err, "failed to stat foo file")
+
+		v, err := NewFsFromFileInfo(tmp, fileinfo, false)
+		myT.FatalfIfErr(err, "Failed to create virtual function")
+
+		v.CopyToFs(file)
 
 		err = createFile(v, "/bar", 0655, time1, "Hello, World!")
 		myT.FatalfIfErr(err, "failed to create virtual file /bar")
@@ -152,23 +165,31 @@ func TestVirtualUsesReferencesForSameFile(t *testing.T) {
 			{"/baz/moreFoo", 0100, time3, helloFooSha512, "text/plain; charset=utf-8", "", emptyTags},
 		}
 		myT.AssertFiles(expected, v, "after creating files in virtual from")
-		myT.AssertTmpDirFileCount(3, tmp, "after creating in virtual from")
+		myT.AssertArchiveSize(fooSize+13+11, tmp, "after creating in virtual from")
 	})
 }
 
 func TestVirtualDoesntAllowMovingOutsideFS(t *testing.T) {
 	myT := NewMyT("Test virtual doesnt allow moving outside filesystem", t)
-	myT.TmpDir(func(tmp string) {
-		v, err := NewFs(tmp, fooFile, false)
-		myT.FatalfIfErr(err, "failed to create virtual function")
+	myT.TmpFile(func(tmp string) {
+		file, err := os.Open(fooFile)
+		myT.FatalfIfErr(err, "failed to open foo file")
 
-		_, err = v.Create("/bad/../not-cool/../../really", 0000, time1)
+		fileinfo, err := file.Stat()
+		myT.FatalfIfErr(err, "failed to stat foo file")
+
+		v, err := NewFsFromFileInfo(tmp, fileinfo, false)
+		myT.FatalfIfErr(err, "Failed to create virtual function")
+
+		v.CopyToFs(file)
+
+		_, err = v.CopyTo("/bad/../not-cool/../../really", 0000, time1, strings.NewReader("should fail"))
 		myT.AssertErr(ErrOutsideFilesystem, err, "should error if trying to create outside filesystem 1")
 
-		_, err = v.Create("bad/../not-cool/../../really", 0000, time1)
+		_, err = v.CopyTo("bad/../not-cool/../../really", 0000, time1, strings.NewReader("should fail"))
 		myT.AssertErr(ErrOutsideFilesystem, err, "should error if trying to create outside filesystem 2")
 
-		_, err = v.Create("../not-cool-either", 0000, time1)
+		_, err = v.CopyTo("../not-cool-either", 0000, time1, strings.NewReader("should fail"))
 		myT.AssertErr(ErrOutsideFilesystem, err, "should error if trying to create outside filesystem 3")
 
 		err = createFile(v, "/bad/../okay/but-really-shouldnt-do-this", 0655, time1, "Hello, World!")
@@ -184,15 +205,23 @@ func TestVirtualDoesntAllowMovingOutsideFS(t *testing.T) {
 			{"/okay/but-really-shouldnt-do-this-either", 0055, time2, helloFooSha512, "text/plain; charset=utf-8", "", emptyTags},
 		}
 		myT.AssertFiles(expected, v, "after overwriting file with dir")
-		myT.AssertTmpDirFileCount(3, tmp, "after overwriting file with dir")
+		myT.AssertArchiveSize(fooSize+13+11, tmp, "after overwriting file with dir")
 	})
 }
 
 func TestVirtualOverwriteFileWithDir(t *testing.T) {
 	myT := NewMyT("Test virtual overwrites file with dir", t)
-	myT.TmpDir(func(tmp string) {
-		v, err := NewFs(tmp, fooFile, false)
-		myT.FatalfIfErr(err, "failed to create virtual function")
+	myT.TmpFile(func(tmp string) {
+		file, err := os.Open(fooFile)
+		myT.FatalfIfErr(err, "failed to open foo file")
+
+		fileinfo, err := file.Stat()
+		myT.FatalfIfErr(err, "failed to stat foo file")
+
+		v, err := NewFsFromFileInfo(tmp, fileinfo, false)
+		myT.FatalfIfErr(err, "Failed to create virtual function")
+
+		v.CopyToFs(file)
 
 		err = createFile(v, "/bar", 0655, time1, "Hello, World!")
 		myT.FatalfIfErr(err, "failed to create virtual file /bar")
@@ -210,15 +239,23 @@ func TestVirtualOverwriteFileWithDir(t *testing.T) {
 			{"/baz", 0600, time2, helloWorldSha512, "text/plain; charset=utf-8", "", emptyTags},
 		}
 		myT.AssertFiles(expected, v, "after overwriting file with dir")
-		myT.AssertTmpDirFileCount(3, tmp, "after overwriting file with dir")
+		myT.AssertArchiveSize(fooSize+13+11, tmp, "after overwriting file with dir")
 	})
 }
 
 func TestVirtualFrom(t *testing.T) {
 	myT := NewMyT("Test virtual from", t)
-	myT.TmpDir(func(tmp string) {
-		v, err := NewFs(tmp, fooFile, false)
-		myT.FatalfIfErr(err, "failed to create virtual function")
+	myT.TmpFile(func(tmp string) {
+		file, err := os.Open(fooFile)
+		myT.FatalfIfErr(err, "failed to open foo file")
+
+		fileinfo, err := file.Stat()
+		myT.FatalfIfErr(err, "failed to stat foo file")
+
+		v, err := NewFsFromFileInfo(tmp, fileinfo, false)
+		myT.FatalfIfErr(err, "Failed to create virtual function")
+
+		v.CopyToFs(file)
 
 		err = createFile(v, "/bar", 0655, time1, "Hello, World!")
 		myT.FatalfIfErr(err, "failed to create virtual file /bar")
@@ -244,9 +281,17 @@ func TestVirtualFrom(t *testing.T) {
 
 func TestTags(t *testing.T) {
 	myT := NewMyT("Test Tags", t)
-	myT.TmpDir(func(tmp string) {
-		v, err := NewFs(tmp, fooFile, false)
-		myT.FatalfIfErr(err, "failed to create virtual function")
+	myT.TmpFile(func(tmp string) {
+		file, err := os.Open(fooFile)
+		myT.FatalfIfErr(err, "failed to open foo file")
+
+		fileinfo, err := file.Stat()
+		myT.FatalfIfErr(err, "failed to stat foo file")
+
+		v, err := NewFsFromFileInfo(tmp, fileinfo, false)
+		myT.FatalfIfErr(err, "Failed to create virtual function")
+
+		v.CopyToFs(file)
 
 		_, ok := v.TagG("foo")
 		myT.Assert(!ok, "foo value should not be set yet")
@@ -277,9 +322,17 @@ func TestTags(t *testing.T) {
 
 func TestWalk(t *testing.T) {
 	myT := NewMyT("Test Walk", t)
-	myT.TmpDir(func(tmp string) {
-		v, err := NewFs(tmp, fooFile, false)
-		myT.FatalfIfErr(err, "failed to create virtual function")
+	myT.TmpFile(func(tmp string) {
+		file, err := os.Open(fooFile)
+		myT.FatalfIfErr(err, "failed to open foo file")
+
+		fileinfo, err := file.Stat()
+		myT.FatalfIfErr(err, "failed to stat foo file")
+
+		v, err := NewFsFromFileInfo(tmp, fileinfo, false)
+		myT.FatalfIfErr(err, "Failed to create virtual function")
+
+		v.CopyToFs(file)
 
 		v.MkdirP("/foo1/foo2", 0755, time1)
 		err = createFile(v, "/foo1/foo2/foo3/bar", 0655, time2, "Hello, World!")
@@ -292,9 +345,17 @@ func TestWalk(t *testing.T) {
 // this is needed for compressed files (i.e. foo.gz)
 func TestSingleChild(t *testing.T) {
 	myT := NewMyT("Test virtual Single Child", t)
-	myT.TmpDir(func(tmp string) {
-		v, err := NewFs(tmp, fooFile, false)
-		myT.FatalfIfErr(err, "failed to create virtual function")
+	myT.TmpFile(func(tmp string) {
+		file, err := os.Open(fooFile)
+		myT.FatalfIfErr(err, "failed to open foo file")
+
+		fileinfo, err := file.Stat()
+		myT.FatalfIfErr(err, "failed to stat foo file")
+
+		v, err := NewFsFromFileInfo(tmp, fileinfo, false)
+		myT.FatalfIfErr(err, "Failed to create virtual function")
+
+		v.CopyToFs(file)
 
 		err = createFile(v, "/bar", 0655, time1, "Hello, World!")
 		myT.FatalfIfErr(err, "failed to create virtual file /bar")
@@ -337,21 +398,51 @@ func TestSingleChild(t *testing.T) {
 		_, err = v.StatAt("/bar", 2)
 		myT.AssertErr(ErrNotFound, err, "should error stat at not existing")
 
-		_, err = v.CreateChild(0000, time1)
+		_, err = v.CopyToChild(0000, time1, strings.NewReader("should fail"))
 		myT.AssertErr(ErrAlreadyHasChildren, err, "should error if trying to create child on one with children")
 
-		_, err = newV.Create("/shouldFail", 0000, time1)
+		_, err = newV.CopyTo("/shouldFail", 0000, time1, strings.NewReader("should fail"))
 		myT.AssertErr(ErrAlreadyHasChild, err, "should error if trying to create children on one with child")
 	})
 }
 
 func TestVirtaulWithDir(t *testing.T) {
 	myT := NewMyT("Test virtual Single Child", t)
-	myT.TmpDir(func(tmp string) {
-		v, err := NewFs(tmp, testFolder, false)
-		myT.FatalfIfErr(err, "failed to create virtual function")
+	myT.TmpFile(func(tmp string) {
+		fileinfo, err := os.Stat(testFolder)
+		myT.FatalfIfErr(err, "failed to stat foo file")
 
+		v, err := NewFsFromFileInfo(tmp, fileinfo, false)
+		myT.FatalfIfErr(err, "Failed to create virtual function")
 		expected := []fileinfoTest{
+			{"/", 0775 | os.ModeDir, ignoreTime, "", "directory/directory", "", emptyTags},
+		}
+		myT.AssertFiles(expected, v, "comparing")
+		myT.AssertArchiveSize(0, tmp, "comparing")
+
+		err = filepath.Walk(testFolder, func(path string, info fs.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			if path == testFolder {
+				return nil // Skip the root directory
+			}
+
+			if info.IsDir() {
+				return v.MkdirP(strings.TrimPrefix(path, testFolder), info.Mode(), info.ModTime())
+			}
+			f, err := os.Open(path)
+			if err != nil {
+				return fmt.Errorf("failed to open file %s: %v", path, err)
+			}
+			defer f.Close()
+			_, err = v.CopyTo(strings.TrimPrefix(path, testFolder), info.Mode(), info.ModTime(), f)
+			return err
+		})
+		myT.FatalfIfErr(err, "failed to walk dir")
+
+		expected = []fileinfoTest{
 			{"/", 0775 | os.ModeDir, ignoreTime, "", "directory/directory", "", emptyTags},
 			{"/bar", barMod, ignoreTime, barSha512, "application/gzip", "", emptyTags},
 			{"/foo", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags},
@@ -360,6 +451,6 @@ func TestVirtaulWithDir(t *testing.T) {
 			{"/more/foo", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags},
 		}
 		myT.AssertFiles(expected, v, "comparing")
-		myT.AssertTmpDirFileCount(3, tmp, "comparing")
+		myT.AssertArchiveSize(fooSize+barSize+bazSize, tmp, "comparing")
 	})
 }

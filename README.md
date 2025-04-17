@@ -26,3 +26,8 @@ foo.tar
 
 # TODO
 - Handle orphaned shas
+- Move io stuff to fifo
+- Cleanup test to be more goie
+- Write files as gzip and return reader/closer/reseter
+- iterate over each unique file and get path
+- Add limited cached writer/reader and write that if its in the limit

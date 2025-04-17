@@ -2,30 +2,32 @@ package virtualfs
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/jonathongardner/virtualfs/filetype"
 )
 
-func (v *Fs) FinDBPath() string {
-	return v.root.db.finDBPath()
-}
-
-func (v *Fs) DBDir() string {
-	return v.root.db.storageDir
-}
+var archiveMagic = []byte("VFJG")
+var archiveVersion = []byte{0}
+var archiveDBOffset = []byte{0, 0, 0, 0, 0, 0, 0, 0}
+var archiveHeader = append(append(archiveMagic, archiveVersion...), archiveDBOffset...)
 
 func (v *Fs) save() error {
-	dbFile := v.FinDBPath()
-	file, err := os.Create(dbFile)
+	// Hopefully isnt needed because this isnt closed till the end buttt just incase
+	v.root.db.wfMu.Lock()
+	defer v.root.db.wfMu.Unlock()
+
+	file := v.root.db.wf
+	offset, err := file.Seek(0, io.SeekCurrent)
 	if err != nil {
-		return fmt.Errorf("error opneing file %v - %v", dbFile, err)
+		return fmt.Errorf("error getting offset for db - %v", err)
 	}
-	defer file.Close()
 
 	err = v.Walk("/", func(path string, info *FileInfo) error {
 		toSave := map[string]any{"path": path, "info": fileInfoToMap(info)}
@@ -42,19 +44,55 @@ func (v *Fs) save() error {
 	if err != nil {
 		return err
 	}
+	cp, err := file.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return fmt.Errorf("error getting end of manifest - %v", err)
+	}
+
+	err = file.Truncate(cp)
+	if err != nil {
+		return fmt.Errorf("error truncating file - %v", err)
+	}
+
+	_, err = file.Seek(0, io.SeekStart)
+	if err != nil {
+		return fmt.Errorf("error seeking to start of db - %v", err)
+	}
+
+	offsetB := make([]byte, 8)
+	binary.LittleEndian.PutUint64(offsetB, uint64(offset))
+	_, err = file.Write(append(append(archiveMagic, archiveVersion...), offsetB...))
+	if err != nil {
+		return fmt.Errorf("error writing offset to db - %v", err)
+	}
 
 	return nil
 }
 
-func (v *Fs) load(storageDir string) error {
-	db := newReferenceDB(storageDir)
+func (v *Fs) load(file *os.File, readonly bool) error {
+	db := newReferenceDB(file)
 
-	dbFile := db.finDBPath()
-	file, err := os.Open(dbFile)
+	hd := make([]byte, len(archiveHeader))
+	_, err := file.Read(hd)
 	if err != nil {
-		return fmt.Errorf("error opening db file - %v", err)
+		return fmt.Errorf("error reading archive header - %v", err)
 	}
-	defer file.Close()
+
+	magic := hd[0:3]
+	if bytes.Equal(magic, archiveMagic) {
+		return fmt.Errorf("invalid archive magic - %v", string(magic))
+	}
+	version := hd[4]
+	if version != 0 {
+		return fmt.Errorf("invalid archive version - %v", version)
+	}
+
+	offset := int64(binary.LittleEndian.Uint64(hd[5:]))
+
+	_, err = file.Seek(offset, io.SeekStart)
+	if err != nil {
+		return fmt.Errorf("error seeking to start of db - %v", err)
+	}
 
 	sc := bufio.NewScanner(file)
 	for sc.Scan() {
@@ -99,13 +137,23 @@ func (v *Fs) load(storageDir string) error {
 		return fmt.Errorf("error reading db - %v", err)
 	}
 
-	err = os.Remove(dbFile)
-	if err != nil {
-		return fmt.Errorf("error removing db - %v", err)
-	}
-
 	if v.root == nil {
 		return fmt.Errorf("no paths in database")
+	}
+
+	if readonly {
+		db.wf = nil
+		return nil
+	}
+
+	_, err = file.Seek(offset, io.SeekStart)
+	if err != nil {
+		return fmt.Errorf("error seeking back to start of file - %v", err)
+	}
+
+	err = file.Truncate(offset)
+	if err != nil {
+		return fmt.Errorf("error truncating file - %v", err)
 	}
 
 	return nil
@@ -257,13 +305,8 @@ func mapToFileInfo(db *referenceDB, data map[string]any) (*FileInfo, error) {
 			return nil, fmt.Errorf("error getting entropy: %v", data["entropy"])
 		}
 
-		// if its a file, therfore it has a checksum so use this
-		path := filepath.Join(db.storageDir, ref.id)
-		if _, err := os.Stat(path); err != nil {
-			return nil, fmt.Errorf("error getting file %v", err)
-		}
 		// if sha512 already seen it will return that reference otherwise it creates a new one
-		n.updateIfDuplicateRef()
+		n.ref, _ = n.db.setIfEmpty(ref)
 	}
 
 	return n, nil
