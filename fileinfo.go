@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jonathongardner/virtualfs/filetype"
+	"github.com/jonathongardner/fifo/filetype"
 )
 
 // -------------------Node---------------------
@@ -23,6 +23,7 @@ type FileInfo struct {
 	ref         *reference
 }
 
+// ----------------Helpers--------------------
 // newFileInfo creates a new file info object
 func newFileInfo(db *referenceDB, name string, mode os.FileMode, modTime time.Time) *FileInfo {
 	reference := &reference{
@@ -42,27 +43,6 @@ func (n *FileInfo) setToSym(oldname string) *FileInfo {
 	n.symlinkPath = oldname
 	return n
 }
-func (n *FileInfo) error(err error) {
-	n.ref.err = err
-	n.db.err = true
-}
-func (n *FileInfo) warning(warn error) {
-	n.ref.warn = append(n.ref.warn, warn)
-	n.db.warn = true
-}
-func (n *FileInfo) tagS(key string, value any) {
-	n.ref.tags.Store(key, value)
-}
-func (n *FileInfo) tagSIfBlank(key string, value any) error {
-	_, loaded := n.ref.tags.LoadOrStore(key, value)
-	if loaded {
-		return ErrAlreadyExist
-	}
-	return nil
-}
-func (n *FileInfo) tagG(key string) (any, bool) {
-	return n.ref.tags.Load(key)
-}
 
 // updateIfDuplicateRef if sha512 already seen it will use that ref and return true
 // if its the first time we see the sha512 then dont change anything and return false
@@ -71,6 +51,74 @@ func (n *FileInfo) updateIfDuplicateRef() bool {
 	n.ref, set = n.db.setIfEmpty(n.ref)
 	// if its no new than it was updated
 	return !set
+}
+
+// ----------------Helpers--------------------
+
+// Error sets the error for the file info
+func (n *FileInfo) Error(err error) {
+	n.ref.err = err
+	n.db.err = true
+}
+
+// Warning adds a warning to the file info
+func (n *FileInfo) Warning(warn error) {
+	n.ref.warn = append(n.ref.warn, warn)
+	n.db.warn = true
+}
+
+// TagS sets the tag with the given key to the given value
+func (n *FileInfo) TagS(key string, value any) {
+	n.ref.tags.Store(key, value)
+}
+
+// TagSIfBlank sets the tag with the given key to the given value if it is not already set
+// returns ErrAlreadyExist if the tag already exists
+func (n *FileInfo) TagSIfBlank(key string, value any) error {
+	_, loaded := n.ref.tags.LoadOrStore(key, value)
+	if loaded {
+		return ErrAlreadyExist
+	}
+	return nil
+}
+
+// TagG returns the tag with the given key, return true if it exists, false if it does not
+func (n *FileInfo) TagG(key string) (any, bool) {
+	return n.ref.tags.Load(key)
+}
+
+// TagD deletes the tag with the given key, returns the tag
+func (n *FileInfo) TagD(key string) (any, bool) {
+	return n.ref.tags.LoadAndDelete(key)
+}
+
+// ID returns the id of the file
+func (n *FileInfo) ID() string {
+	return n.ref.id
+}
+
+// Sha512 returns the sha512 of the file
+func (fi *FileInfo) Sha512() string {
+	return fi.ref.sha512
+}
+
+// Filetype returns the filetype of the file
+func (fi *FileInfo) Filetype() filetype.Filetype {
+	return fi.ref.typ
+}
+
+// ErrorId returns the error id of the file
+func (fi *FileInfo) ErrorId() error {
+	return fmt.Errorf("id: %v, name: %v, type: %v,", fi.ref.id, fi.name, fi.ref.typ)
+}
+
+// IsRegular returns true if the file is a regular file based on the filetype
+func (fi *FileInfo) IsRegular() bool {
+	// different nodes could have different nodes and therefore this could
+	// be different per reference, maybe we should check ref.typ?
+	// return v.root.mode.IsRegular()
+	typ := fi.Filetype()
+	return typ != filetype.Symlink && typ != filetype.Dir
 }
 
 // ---------------------Disk Operations--------------------
@@ -132,12 +180,8 @@ func (n *FileInfo) touch(paths []string, perm os.FileMode, modTime time.Time) (*
 	return dir.ref.setChildren(newFileInfo(n.db, name, perm, modTime))
 }
 
-func (n *FileInfo) create() (*myFile, error) {
-	return createMyWriterCloser(n, defaultCacheFile(n.Path()))
-}
-
-func (n *FileInfo) createMv(originalPath string) (*myFile, error) {
-	return createMyWriterCloser(n, defaultMvFile(n.Path(), originalPath))
+func (n *FileInfo) Create() (*myFile, error) {
+	return createMyWriterCloser(n, n.Path())
 }
 
 func (n *FileInfo) symlink(oldname string, paths []string, perm os.FileMode, modTime time.Time) (*FileInfo, error) {
@@ -227,19 +271,7 @@ func (fi *FileInfo) IsDir() bool {
 	return fi.mode.IsDir()
 }
 func (fi *FileInfo) Sys() any {
-	return fi.ref.tags
+	return nil
 }
 
 // ---------------------FileInfo Methods--------------------
-func (fi *FileInfo) Filetype() filetype.Filetype {
-	return fi.ref.typ
-}
-
-func (fi *FileInfo) ErrorId() error {
-	return fmt.Errorf("id: %v, name: %v, type: %v,", fi.ref.id, fi.name, fi.ref.typ)
-}
-
-// -----------------------Checksums--------------------------
-func (fi *FileInfo) Sha512() string {
-	return fi.ref.sha512
-}

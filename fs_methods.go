@@ -6,13 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/jonathongardner/virtualfs/filetype"
 	// log "github.com/sirupsen/logrus"
 )
-
-var ErrClosed = fmt.Errorf("virtual file system is closed")
-var ErrChild = fmt.Errorf("virtual file system is a child of another fs")
 
 // Close save the virtual file system to the disk
 func (v *Fs) Close() error {
@@ -43,6 +38,14 @@ func (v *Fs) isChild() error {
 	return nil
 }
 
+// newFs Returns a new virtual filesystem from root
+func (v *Fs) newFs(root *FileInfo) *Fs {
+	return &Fs{
+		root:   root,
+		parent: v.parent,
+	}
+}
+
 // FsFrom returns a virtual filesystem from the given path
 func (v *Fs) FsFrom(path string) (*Fs, error) {
 	err := v.isClosed()
@@ -55,22 +58,7 @@ func (v *Fs) FsFrom(path string) (*Fs, error) {
 		return nil, fmt.Errorf("%v: %v (FsFrom)", err, path)
 	}
 
-	return &Fs{root: newRoot, parent: v}, nil
-}
-
-// smartNewFs returns the virtual filesystem from the given path
-// creates the directory (and parents) if it does not exist
-// if will also set the type to directory if the mode is a directory
-func (v *Fs) smartNewFs(path string, mode os.FileMode, mtime time.Time) (*Fs, error) {
-	newRoot, err := v.root.touch([]string{path}, mode, mtime)
-	if err != nil {
-		return nil, err
-	}
-	if mode.IsDir() {
-		newRoot.setToDir()
-	}
-
-	return &Fs{root: newRoot, parent: v}, nil
+	return v.newFs(newRoot), nil
 }
 
 // NewFsChild returns the virtual filesystem from the given path
@@ -91,41 +79,10 @@ func (v *Fs) NewFsChild(path string) (*Fs, error) {
 		return nil, err
 	}
 
-	return &Fs{root: newRoot, parent: v}, nil
-}
-
-// FsChildren returns the direct children of the filesystem
-func (v *Fs) FsChildren() (toReturn []*Fs) {
-	if v.root.ref.child != nil {
-		toReturn = append(toReturn, &Fs{root: v.root.ref.child, parent: v})
-	}
-
-	if v.root.ref.children == nil {
-		return
-	}
-
-	for _, n := range v.root.ref.children {
-		toReturn = append(toReturn, &Fs{root: n, parent: v})
-	}
-	return
+	return v.newFs(newRoot), nil
 }
 
 // --------Root stuff----------
-// TODO: might can remove
-func (v *Fs) ErrorId() error {
-	return v.root.ErrorId()
-}
-
-// Error adds a error to the filesystem
-func (v *Fs) Error(err error) {
-	v.root.error(err)
-}
-
-// Warning adds a warning to the filesystem
-func (v *Fs) Warning(err error) {
-	v.root.warning(err)
-}
-
 // ProcessError returns an error if the filesystem has an error
 func (v *Fs) ProcessError() error {
 	if v.root.db.err {
@@ -142,44 +99,9 @@ func (v *Fs) ProcessWarning() error {
 	return nil
 }
 
-// LocalPath returns the underlying path to this file in the virtual filesystem
-// i.e. the unique file
-func (v *Fs) LocalPath() string {
-	return v.root.Path()
-}
-
-// TagS set a tag on this filesystem
-// Note: its on the "reference" so same sha/data will have same tags
-// mostly can be used for marking what extracter was used
-func (v *Fs) TagS(key string, value any) {
-	v.root.tagS(key, value)
-}
-
-// TagSIfBlank set a tag on this filesystem if its not been set yet,
-// if it has it will raise an error. Multithreaded safe.
-func (v *Fs) TagSIfBlank(key string, value any) error {
-	return v.root.tagSIfBlank(key, value)
-}
-
-// TagG: Get a tag, returns false if not found
-func (v *Fs) TagG(key string) (any, bool) {
-	return v.root.tagG(key)
-}
-
-func (v *Fs) ID() string {
-	return v.root.ref.id
-}
-
-func (v *Fs) IsRegular() bool {
-	// different nodes could have different nodes and therefore this could
-	// be different per reference, maybe we should check ref.typ?
-	// return v.root.mode.IsRegular()
-	typ := v.root.ref.typ
-	return typ != filetype.Symlink && typ != filetype.Dir
-}
-
-func (v *Fs) OpenFile() (*os.File, error) {
-	return v.root.Open()
+// Root returns the FileInfo for the root of the filesystem
+func (v *Fs) Root() *FileInfo {
+	return v.root
 }
 
 //--------Root stuff----------
@@ -213,7 +135,7 @@ func (v *Fs) StatAt(path string, at int) (*FileInfo, error) {
 	return toWalk, nil
 }
 
-// Open returns an os.File for the path
+// Open returns an os.File for the path, if no path is given, it will return the root
 func (v *Fs) Open(path string) (*os.File, error) {
 	err := v.isClosed()
 	if err != nil {
@@ -227,54 +149,34 @@ func (v *Fs) Open(path string) (*os.File, error) {
 	return toWalk.Open()
 }
 
-// Path returns the underlying path (for the path given) in the virtual filesystem
-// i.e. the unique file
-func (v *Fs) Path(path string) (string, error) {
-	err := v.isClosed()
-	if err != nil {
-		return "", err
-	}
-
-	toWalk, _, err := v.fileInfoFrom(path, -1)
-	if err != nil {
-		return "", err
-	}
-	return toWalk.Path(), nil
-}
-
 // MkdirP creates a directory and all the parents if they do not exist
-func (v *Fs) MkdirP(path string, perm os.FileMode, modTime time.Time) error {
+func (v *Fs) MkdirP(path string, perm os.FileMode, modTime time.Time) (*Fs, error) {
 	err := v.isClosed()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	paths, err := split(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	_, err = v.root.mkdirP(paths, perm, modTime)
-	return err
+	newRoot, err := v.root.mkdirP(paths, perm, modTime)
+	return v.newFs(newRoot), err
 }
 
-// CreateChild creates a file under the root (i.e. for a compression that has a single
-// file, not a path. Like gz vs tar.)
-func (v *Fs) CreateChild(perm os.FileMode, modTime time.Time) (*myFile, error) {
+// TouchWithoutPath creates a child file
+func (v *Fs) TouchWithoutPath(perm os.FileMode, modTime time.Time) (*Fs, error) {
 	err := v.isClosed()
 	if err != nil {
 		return nil, err
 	}
 
 	newFileInfo, err := v.root.touch([]string{}, perm, modTime)
-	if err != nil {
-		return nil, err
-	}
-
-	return newFileInfo.create()
+	return v.newFs(newFileInfo), err
 }
 
-// Create creates a file at the path
-func (v *Fs) Create(path string, perm os.FileMode, modTime time.Time) (*myFile, error) {
+// Touch creates a file to the path
+func (v *Fs) Touch(path string, perm os.FileMode, modTime time.Time) (*Fs, error) {
 	err := v.isClosed()
 	if err != nil {
 		return nil, err
@@ -285,39 +187,36 @@ func (v *Fs) Create(path string, perm os.FileMode, modTime time.Time) (*myFile, 
 		return nil, err
 	}
 	if len(path) == 0 {
-		panic("path shoudnt be empty")
+		return nil, ErrOutsideFilesystem
 	}
 
 	newFileInfo, err := v.root.touch(paths, perm, modTime)
+	return v.newFs(newFileInfo), err
+}
+
+// Symlink creates a symlnk at the path
+func (v *Fs) Symlink(oldname, newname string, perm os.FileMode, modTime time.Time) (*Fs, error) {
+	err := v.isClosed()
 	if err != nil {
 		return nil, err
 	}
 
-	return newFileInfo.create()
-}
-
-// Symlink creates a symlnk at the path
-func (v *Fs) Symlink(oldname, newname string, perm os.FileMode, modTime time.Time) error {
-	err := v.isClosed()
-	if err != nil {
-		return err
-	}
-
 	paths, err := split(newname)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(paths) == 0 {
-		panic("path shoudnt be empty")
+		return nil, ErrOutsideFilesystem
 	}
 
-	_, err = v.root.symlink(oldname, paths, perm, modTime)
-	return err
+	newRoot, err := v.root.symlink(oldname, paths, perm, modTime)
+	return v.newFs(newRoot), err
 }
 
 // ---------------------Disk Operations--------------------
 
 // Walk calls the callback for each file in the virtual filesystem
+// if ErrDontWalk is returned, it will not walk the children
 func (v *Fs) Walk(path string, callback func(string, *FileInfo) error) error {
 	toWalk, path, err := v.fileInfoFrom(path, -1)
 	if err != nil {

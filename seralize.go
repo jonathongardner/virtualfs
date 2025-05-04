@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/jonathongardner/virtualfs/filetype"
+	"github.com/jonathongardner/fifo/filetype"
 )
 
 func (v *Fs) FinDBPath() string {

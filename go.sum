@@ -1,6 +1,10 @@
-github.com/gabriel-vasile/mimetype v1.4.4 h1:QjV6pZ7/XZ7ryI2KuyeEDE8wnh7fHP9YnQy+R0LnH8I=
-github.com/gabriel-vasile/mimetype v1.4.4/go.mod h1:JwLei5XPtWdGiMFB5Pjle1oEeoSeEuJfJE+TtfvdB/s=
+github.com/gabriel-vasile/mimetype v1.4.9 h1:5k+WDwEsD9eTLL8Tz3L0VnmVh9QxGjRmjBvAG7U/oYY=
+github.com/gabriel-vasile/mimetype v1.4.9/go.mod h1:WnSQhFKJuBlRyLiKohA/2DtIlPFAbguNaG7QCHcyGok=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
-golang.org/x/net v0.25.0 h1:d/OCCoBEUq33pjydKrGQhw7IlUPI2Oylr+8qLx49kac=
-golang.org/x/net v0.25.0/go.mod h1:JkAGAh7GEvH74S6FOH42FLoXpXbE/aqXSrIQjXgsiwM=
+github.com/jonathongardner/fifo v0.0.0-20250504190139-ad52552dd6b8 h1:KUiHH9XbSKHR9AQZWHYY0QyBqEzd0HBqMjt5EndUrJw=
+github.com/jonathongardner/fifo v0.0.0-20250504190139-ad52552dd6b8/go.mod h1:LJGgrN9mwGjxqQk5YlgXWIoQ1q2c810u+hd1wcTglzE=
+github.com/jonathongardner/fifo v0.0.0-20250506144127-8ebada51fb37 h1:Lxrg6gpt/uVJR5cPsJI+wcQLh0wGlgyNG5crtai8WhY=
+github.com/jonathongardner/fifo v0.0.0-20250506144127-8ebada51fb37/go.mod h1:LJGgrN9mwGjxqQk5YlgXWIoQ1q2c810u+hd1wcTglzE=
+golang.org/x/net v0.39.0 h1:ZCu7HMWDxpXpaiKdhzIfaltL9Lp31x/3fCP11bc6/fY=
+golang.org/x/net v0.39.0/go.mod h1:X7NRbYVEA+ewNkCNyJ513WmMdQ3BineSwVtN2zD/d+E=

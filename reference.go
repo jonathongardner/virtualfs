@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/jonathongardner/virtualfs/filetype"
+	"github.com/jonathongardner/fifo/filetype"
 )
 
 // -------------------Reference---------------------
