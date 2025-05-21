@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 	"time"
 	// log "github.com/sirupsen/logrus"
 )
@@ -22,35 +21,16 @@ func NewFsFromDb(storageDir string) (*Fs, error) {
 }
 
 // NewFs creates a new virtual file system from a file or stdin
-func NewFs(storageDir, rootPath string) (*Fs, error) {
+func NewFs(storageDir, name string, mode os.FileMode, modTime time.Time, r io.Reader) (*Fs, error) {
 	err := os.Mkdir(storageDir, 0755)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create storage dir: %v", err)
 	}
 
-	if rootPath == "" {
-		fs := smartNewFs(storageDir, "stdin", 0755, time.Now())
-		if err := fs.copyReader(os.Stdin); err != nil {
-			return nil, fmt.Errorf("couldn't copy stdin - %v", err)
-		}
-		return fs, nil
-	}
-
-	fileInfo, err := os.Stat(rootPath)
-	if err != nil {
-		return nil, fmt.Errorf("couldn't get path info (%v) - %v", rootPath, err)
-	}
-
-	fs := smartNewFs(storageDir, path.Base(rootPath), fileInfo.Mode(), fileInfo.ModTime())
-	if !fileInfo.IsDir() {
-		file, err := os.Open(rootPath)
-		if err != nil {
-			return nil, fmt.Errorf("couldn't open file (%v) - %v", rootPath, err)
-		}
-		defer file.Close()
-
-		if err := fs.copyReader(file); err != nil {
-			return nil, fmt.Errorf("couldn't copy file (%v) - %v", rootPath, err)
+	fs := smartNewFs(storageDir, name, mode, modTime)
+	if !mode.IsDir() {
+		if err := fs.copyReader(r); err != nil {
+			return nil, fmt.Errorf("couldn't copy from reader (%v) - %v", name, err)
 		}
 	}
 

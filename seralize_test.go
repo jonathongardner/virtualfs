@@ -11,7 +11,7 @@ import (
 func TestVirtualClose(t *testing.T) {
 	tmpDir(t, func(tmp string) {
 		//------------ Setup Filesystem
-		v, err := NewFs(tmp, fooFile)
+		v, err := newFooFs(tmp)
 		fatalfIfErr(t, err, "Failed to create virtual function")
 
 		v.Root().TagS("foo", "bar")
@@ -95,7 +95,7 @@ func TestVirtualClose(t *testing.T) {
 func TestVirtualCloseWithErr(t *testing.T) {
 	tmpDir(t, func(tmp string) {
 		//------------ Setup Filesystem
-		v, err := NewFs(tmp, fooFile)
+		v, err := newFooFs(tmp)
 		fatalfIfErr(t, err, "Failed to create virtual function")
 
 		_, err = v.MkdirP("/foo", 0755, time1)

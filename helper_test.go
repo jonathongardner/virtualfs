@@ -12,11 +12,13 @@ import (
 const testFolder = "testdata/foo-folder"
 
 var testMod os.FileMode
+var testTime time.Time
 
 const fooFile = "testdata/foo"
 const fooSha512 = "0f5623276549769a63c79ca20fc573518685819fe82b39f43a3e7cf709c8baa16524daa95e006e81f7267700a88adee8a6209201be960a10c81c35ff3547e3b7"
 
 var fooMod os.FileMode
+var fooTime time.Time
 
 const barFile = testFolder + "/bar"
 const barSha512 = "c971808ecc8c67052f1ccce75ca3ac57c75cad6abc1ce7767f7ca515aac311897478eb126dfa1d94042f3881e6fd09bca779dc274938dcaa828fc08ecec94315"
@@ -34,12 +36,14 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	testMod = fileInfo.Mode()
+	testTime = fileInfo.ModTime()
 
 	fileInfo, err = os.Stat(fooFile)
 	if err != nil {
 		panic(err)
 	}
 	fooMod = fileInfo.Mode()
+	fooTime = fileInfo.ModTime()
 
 	fileInfo, err = os.Stat(barFile)
 	if err != nil {
@@ -53,7 +57,7 @@ func TestMain(m *testing.M) {
 	}
 	bazMod = fileInfo.Mode()
 
-	fmt.Println("Starting tests...")
+	// fmt.Println("Starting tests...")
 
 	exitCode := m.Run() // Runs all tests
 
@@ -72,6 +76,27 @@ var time2 = time.Date(2022, 4, 7, 22, 0, 0, 0, time.UTC)
 var time3 = time.Date(2022, 3, 17, 15, 0, 0, 0, time.UTC)
 
 var emptyTags = map[any]any{}
+
+func newFooFs(tmp string) (*Fs, error) {
+	f, err := os.Open(fooFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open foo file %v", err)
+	}
+	defer f.Close()
+	v, err := NewFs(tmp, "foo", fooMod, fooTime, f)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create virtual function %v", err)
+	}
+	return v, nil
+}
+
+func newTestFolderFs(tmp string) (*Fs, error) {
+	v, err := NewFs(tmp, "foo-folder", testMod, testTime, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create virtual function %v", err)
+	}
+	return v, nil
+}
 
 type fileinfoTest struct {
 	path        string

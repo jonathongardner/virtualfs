@@ -55,16 +55,16 @@ func createChildFile(v *Fs, perm os.FileMode, modTime time.Time, content string)
 
 func TestVirtualOg(t *testing.T) {
 	tmpDir(t, func(tmp string) {
-		v, err := NewFs(tmp, fooFile)
+		v, err := newFooFs(tmp)
 		fatalfIfErr(t, err, "Failed to create virtual function")
 
-		expected := []fileinfoTest{{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags}}
+		expected := []fileinfoTest{{"/", fooMod, fooTime, fooSha512, "application/octet-stream", "", emptyTags}}
 		assertFiles(t, expected, v, "Initial")
 
 		// add directory and make all paths needed
 		v.MkdirP("/foo1/foo2", 0755, time1)
 		expected = []fileinfoTest{
-			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags},
+			{"/", fooMod, fooTime, fooSha512, "application/octet-stream", "", emptyTags},
 			{"/foo1", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
 			{"/foo1/foo2", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
 		}
@@ -73,7 +73,7 @@ func TestVirtualOg(t *testing.T) {
 		// add another directory and make all paths needed
 		v.MkdirP("/foo1/foo2/foo3/foo4", 0700, time2)
 		expected = []fileinfoTest{
-			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags},
+			{"/", fooMod, fooTime, fooSha512, "application/octet-stream", "", emptyTags},
 			{"/foo1", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
 			{"/foo1/foo2", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
 			{"/foo1/foo2/foo3", 0700 | fs.ModeDir, time2, "", "directory/directory", "", emptyTags},
@@ -87,7 +87,7 @@ func TestVirtualOg(t *testing.T) {
 		fatalfIfErr(t, err, "failed to create virtual file /foo1/foo2/foo3/bar")
 
 		expected = []fileinfoTest{
-			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags},
+			{"/", fooMod, fooTime, fooSha512, "application/octet-stream", "", emptyTags},
 			{"/foo1", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
 			{"/foo1/foo2", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
 			{"/foo1/foo2/foo3", 0700 | fs.ModeDir, time2, "", "directory/directory", "", emptyTags},
@@ -102,7 +102,7 @@ func TestVirtualOg(t *testing.T) {
 		fatalfIfErr(t, err, "failed to create symlink /foo1/foo2/symlink-bar")
 
 		expected = []fileinfoTest{
-			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags},
+			{"/", fooMod, fooTime, fooSha512, "application/octet-stream", "", emptyTags},
 			{"/foo1", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
 			{"/foo1/foo2", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
 			{"/foo1/foo2/foo3", 0700 | fs.ModeDir, time2, "", "directory/directory", "", emptyTags},
@@ -118,7 +118,90 @@ func TestVirtualOg(t *testing.T) {
 		fatalfIfErr(t, err, "failed to create symlink /foo1/foo2/symlink-nowhere")
 
 		expected = []fileinfoTest{
-			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags},
+			{"/", fooMod, fooTime, fooSha512, "application/octet-stream", "", emptyTags},
+			{"/foo1", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2/foo3", 0700 | fs.ModeDir, time2, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2/foo3/bar", 0655, time3, helloWorldSha512, "text/plain; charset=utf-8", "", emptyTags},
+			{"/foo1/foo2/foo3/foo4", 0700 | fs.ModeDir, time2, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2/symlink-bar", 0700 | fs.ModeSymlink, time1, "", "symlink/symlink", "/foo1/foo2/foo3/bar", emptyTags},
+			{"/foo1/foo2/symlink-nowhere", 0777 | fs.ModeSymlink, time2, "", "symlink/symlink", "/cool/beans/who-cares", emptyTags},
+		}
+		assertFiles(t, expected, v, "after creating /foo1/foo2/symlink-nowhere")
+		assertTmpDirFileCount(t, 2, tmp, "after creating /foo1/foo2/symlink-nowhere")
+	})
+}
+
+func TestVirtualBlankOg(t *testing.T) {
+	tmpDir(t, func(tmp string) {
+		f, err := os.Open(fooFile)
+		fatalfIfErr(t, err, "Failed to open foo file")
+		defer f.Close()
+
+		v, err := NewFs(tmp, "", fooMod, fooTime, f)
+		fatalfIfErr(t, err, "Failed to create virtual function")
+
+		expected := []fileinfoTest{{"/", fooMod, fooTime, fooSha512, "application/octet-stream", "", emptyTags}}
+		assertFiles(t, expected, v, "Initial")
+
+		// add directory and make all paths needed
+		v.MkdirP("/foo1/foo2", 0755, time1)
+		expected = []fileinfoTest{
+			{"/", fooMod, fooTime, fooSha512, "application/octet-stream", "", emptyTags},
+			{"/foo1", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
+		}
+		assertFiles(t, expected, v, "after creating /foo1/foo2")
+
+		// add another directory and make all paths needed
+		v.MkdirP("/foo1/foo2/foo3/foo4", 0700, time2)
+		expected = []fileinfoTest{
+			{"/", fooMod, fooTime, fooSha512, "application/octet-stream", "", emptyTags},
+			{"/foo1", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2/foo3", 0700 | fs.ModeDir, time2, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2/foo3/foo4", 0700 | fs.ModeDir, time2, "", "directory/directory", "", emptyTags},
+		}
+		assertFiles(t, expected, v, "after creating foo1/foo2/foo3/foo4")
+		assertTmpDirFileCount(t, 1, tmp, "after creating foo1/foo2/foo3/foo4")
+
+		// Create a file
+		err = createFile(v, "/foo1/foo2/foo3/bar", 0655, time3, "Hello, World!")
+		fatalfIfErr(t, err, "failed to create virtual file /foo1/foo2/foo3/bar")
+
+		expected = []fileinfoTest{
+			{"/", fooMod, fooTime, fooSha512, "application/octet-stream", "", emptyTags},
+			{"/foo1", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2/foo3", 0700 | fs.ModeDir, time2, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2/foo3/bar", 0655, time3, helloWorldSha512, "text/plain; charset=utf-8", "", emptyTags},
+			{"/foo1/foo2/foo3/foo4", 0700 | fs.ModeDir, time2, "", "directory/directory", "", emptyTags},
+		}
+		assertFiles(t, expected, v, "after creating foo1/foo2/foo3/bar")
+		assertTmpDirFileCount(t, 2, tmp, "after creating foo1/foo2/foo3/bar")
+
+		// Create a symlink
+		_, err = v.Symlink("/foo1/foo2/foo3/bar", "/foo1/foo2/symlink-bar", 0700, time1)
+		fatalfIfErr(t, err, "failed to create symlink /foo1/foo2/symlink-bar")
+
+		expected = []fileinfoTest{
+			{"/", fooMod, fooTime, fooSha512, "application/octet-stream", "", emptyTags},
+			{"/foo1", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2/foo3", 0700 | fs.ModeDir, time2, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2/foo3/bar", 0655, time3, helloWorldSha512, "text/plain; charset=utf-8", "", emptyTags},
+			{"/foo1/foo2/foo3/foo4", 0700 | fs.ModeDir, time2, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2/symlink-bar", 0700 | fs.ModeSymlink, time1, "", "symlink/symlink", "/foo1/foo2/foo3/bar", emptyTags},
+		}
+		assertFiles(t, expected, v, "after creating /foo1/foo2/symlink-bar")
+		assertTmpDirFileCount(t, 2, tmp, "after creating /foo1/foo2/symlink-bar")
+
+		// Create a symlink to nowhere
+		_, err = v.Symlink("/cool/beans/who-cares", "/foo1/foo2/symlink-nowhere", 0777, time2)
+		fatalfIfErr(t, err, "failed to create symlink /foo1/foo2/symlink-nowhere")
+
+		expected = []fileinfoTest{
+			{"/", fooMod, fooTime, fooSha512, "application/octet-stream", "", emptyTags},
 			{"/foo1", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
 			{"/foo1/foo2", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
 			{"/foo1/foo2/foo3", 0700 | fs.ModeDir, time2, "", "directory/directory", "", emptyTags},
@@ -134,7 +217,7 @@ func TestVirtualOg(t *testing.T) {
 
 func TestVirtualUsesReferencesForSameFile(t *testing.T) {
 	tmpDir(t, func(tmp string) {
-		v, err := NewFs(tmp, fooFile)
+		v, err := newFooFs(tmp)
 		fatalfIfErr(t, err, "failed to create virtual function")
 
 		err = createFile(v, "/bar", 0655, time1, "Hello, World!")
@@ -164,7 +247,7 @@ func TestVirtualUsesReferencesForSameFile(t *testing.T) {
 
 func TestVirtualDoesntAllowMovingOutsideFS(t *testing.T) {
 	tmpDir(t, func(tmp string) {
-		v, err := NewFs(tmp, fooFile)
+		v, err := newFooFs(tmp)
 		fatalfIfErr(t, err, "failed to create virtual function")
 
 		_, err = v.Touch("/bad/../not-cool/../../really", 0000, time1)
@@ -198,7 +281,7 @@ func TestVirtualDoesntAllowMovingOutsideFS(t *testing.T) {
 
 func TestVirtualOverwriteFileWithDir(t *testing.T) {
 	tmpDir(t, func(tmp string) {
-		v, err := NewFs(tmp, fooFile)
+		v, err := newFooFs(tmp)
 		fatalfIfErr(t, err, "failed to create virtual function")
 
 		err = createFile(v, "/bar", 0655, time1, "Hello, World!")
@@ -223,7 +306,7 @@ func TestVirtualOverwriteFileWithDir(t *testing.T) {
 
 func TestVirtualFrom(t *testing.T) {
 	tmpDir(t, func(tmp string) {
-		v, err := NewFs(tmp, fooFile)
+		v, err := newFooFs(tmp)
 		fatalfIfErr(t, err, "failed to create virtual function")
 
 		err = createFile(v, "/bar", 0655, time1, "Hello, World!")
@@ -250,7 +333,7 @@ func TestVirtualFrom(t *testing.T) {
 
 func TestTags(t *testing.T) {
 	tmpDir(t, func(tmp string) {
-		v, err := NewFs(tmp, fooFile)
+		v, err := newFooFs(tmp)
 		fatalfIfErr(t, err, "failed to create virtual function")
 
 		root := v.Root()
@@ -284,7 +367,7 @@ func TestTags(t *testing.T) {
 
 func TestWalk(t *testing.T) {
 	tmpDir(t, func(tmp string) {
-		v, err := NewFs(tmp, fooFile)
+		v, err := newFooFs(tmp)
 		fatalfIfErr(t, err, "failed to create virtual function")
 
 		v.MkdirP("/foo1/foo2", 0755, time1)
@@ -298,7 +381,7 @@ func TestWalk(t *testing.T) {
 // this is needed for compressed files (i.e. foo.gz)
 func TestSingleChild(t *testing.T) {
 	tmpDir(t, func(tmp string) {
-		v, err := NewFs(tmp, fooFile)
+		v, err := newFooFs(tmp)
 		fatalfIfErr(t, err, "failed to create virtual function")
 
 		err = createFile(v, "/bar", 0655, time1, "Hello, World!")
@@ -352,7 +435,7 @@ func TestSingleChild(t *testing.T) {
 
 func TestVirtaulWithDir(t *testing.T) {
 	tmpDir(t, func(tmp string) {
-		v, err := NewFs(tmp, testFolder)
+		v, err := newTestFolderFs(tmp)
 		fatalfIfErr(t, err, "failed to create virtual function")
 
 		expected := []fileinfoTest{
