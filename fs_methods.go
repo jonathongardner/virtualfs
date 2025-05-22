@@ -164,8 +164,8 @@ func (v *Fs) MkdirP(path string, perm os.FileMode, modTime time.Time) (*Fs, erro
 	return v.newFs(newRoot), err
 }
 
-// TouchWithoutPath creates a child file
-func (v *Fs) TouchWithoutPath(perm os.FileMode, modTime time.Time) (*Fs, error) {
+// CreateWithoutPath creates a child file
+func (v *Fs) CreateWithoutPath(perm os.FileMode, modTime time.Time) (*Fs, error) {
 	err := v.isClosed()
 	if err != nil {
 		return nil, err
@@ -175,8 +175,8 @@ func (v *Fs) TouchWithoutPath(perm os.FileMode, modTime time.Time) (*Fs, error) 
 	return v.newFs(newFileInfo), err
 }
 
-// Touch creates a file to the path
-func (v *Fs) Touch(path string, perm os.FileMode, modTime time.Time) (*Fs, error) {
+// Create creates a file to the path
+func (v *Fs) Create(path string, perm os.FileMode, modTime time.Time) (*Fs, error) {
 	err := v.isClosed()
 	if err != nil {
 		return nil, err
@@ -242,8 +242,10 @@ func (v *Fs) Hardlink(source, newname string, perm os.FileMode, modTime time.Tim
 
 // Walk calls the callback for each file in the virtual filesystem
 // if ErrDontWalk is returned, it will not walk the children
+// the path walks the first value at that path, so if it has children:
+// the path could be returned multiple times
 func (v *Fs) Walk(path string, callback func(string, *FileInfo) error) error {
-	toWalk, path, err := v.fileInfoFrom(path, -1)
+	toWalk, path, err := v.fileInfoFrom(path, 0)
 	if err != nil {
 		return fmt.Errorf("%v: %v (walk)", err, path)
 	}

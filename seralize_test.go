@@ -56,7 +56,7 @@ func TestVirtualClose(t *testing.T) {
 		_, err = v.MkdirP("/foo/should-fail-folder", 0755, time1)
 		assertEqual(t, err, ErrClosed, "expected error creating virtual folder /foo/should-fail-folder after closing")
 
-		_, err = v.Touch("/foo/should-fail-file", 0655, time1)
+		_, err = v.Create("/foo/should-fail-file", 0655, time1)
 		assertEqual(t, err, ErrClosed, "expected error creating virtual file /foo/should-fail-file after closing")
 
 		// Create a symlink
@@ -135,7 +135,7 @@ func TestVirtualCloseWithErr(t *testing.T) {
 		_, err = v.MkdirP("/foo/should-fail-folder", 0755, time1)
 		assertEqual(t, err, ErrClosed, "expected error creating virtual folder /foo/should-fail-folder after closing")
 
-		_, err = v.Touch("/foo/should-fail-file", 0655, time1)
+		_, err = v.Create("/foo/should-fail-file", 0655, time1)
 		assertEqual(t, err, ErrClosed, "expected error creating virtual file /foo/should-fail-file after closing")
 
 		// Create a symlink

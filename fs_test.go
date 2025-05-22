@@ -12,7 +12,7 @@ import (
 // const bazFile = "testdata/baz"
 
 func createFile(v *Fs, path string, perm os.FileMode, modTime time.Time, content string) error {
-	newV, err := v.Touch(path, perm, modTime)
+	newV, err := v.Create(path, perm, modTime)
 	if err != nil {
 		return fmt.Errorf("failed to create virtual file  %v", err)
 	}
@@ -33,7 +33,7 @@ func createFile(v *Fs, path string, perm os.FileMode, modTime time.Time, content
 }
 
 func createChildFile(v *Fs, perm os.FileMode, modTime time.Time, content string) error {
-	newV, err := v.TouchWithoutPath(perm, modTime)
+	newV, err := v.CreateWithoutPath(perm, modTime)
 	if err != nil {
 		return fmt.Errorf("failed to create virtual file  %v", err)
 	}
@@ -271,16 +271,16 @@ func TestVirtualDoesntAllowMovingOutsideFS(t *testing.T) {
 		v, err := newFooFs(tmp)
 		fatalfIfErr(t, err, "failed to create virtual function")
 
-		_, err = v.Touch("/bad/../not-cool/../../really", 0000, time1)
+		_, err = v.Create("/bad/../not-cool/../../really", 0000, time1)
 		assertErr(t, ErrOutsideFilesystem, err, "should error if trying to create outside filesystem 1")
 
-		_, err = v.Touch("bad/../not-cool/../../really", 0000, time1)
+		_, err = v.Create("bad/../not-cool/../../really", 0000, time1)
 		assertErr(t, ErrOutsideFilesystem, err, "should error if trying to create outside filesystem 2")
 
-		_, err = v.Touch("../not-cool-either", 0000, time1)
+		_, err = v.Create("../not-cool-either", 0000, time1)
 		assertErr(t, ErrOutsideFilesystem, err, "should error if trying to create outside filesystem 3")
 
-		_, err = v.Touch("", 0000, time1)
+		_, err = v.Create("", 0000, time1)
 		assertErr(t, ErrOutsideFilesystem, err, "should error if trying to create outside filesystem 4")
 
 		err = createFile(v, "/bad/../okay/but-really-shouldnt-do-this", 0655, time1, "Hello, World!")
@@ -400,6 +400,53 @@ func TestWalk(t *testing.T) {
 }
 
 // this is needed for compressed files (i.e. foo.gz)
+func TestSingleRootChild(t *testing.T) {
+	tmpDir(t, func(tmp string) {
+		f, err := os.Open(fooFile)
+		fatalfIfErr(t, err, "Failed to open foo file")
+		defer f.Close()
+
+		// Use blank name otherwise the walked file will have a weird name
+		v, err := NewFs(tmp, "", fooMod, fooTime, f)
+		fatalfIfErr(t, err, "Failed to create virtual function")
+
+		err = createChildFile(v, 0700, time2, "sZ�f�H�����/�IQ����")
+		fatalfIfErr(t, err, "failed to create child")
+
+		newV, err := v.FsFrom("/")
+		fatalfIfErr(t, err, "failed to create virtual filesystemfrom bar compressed")
+
+		err = createFile(newV, "/moreFoo", 0100, time3, "Hello, Foo!")
+		fatalfIfErr(t, err, "failed to create /moreFoo from virtual file bar")
+
+		expected := []fileinfoTest{
+			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags},
+			{"/", 0700, time2, helloWorldCompressedSha512, "text/plain; charset=utf-8", "", emptyTags},
+			{"/moreFoo", 0100, time3, helloFooSha512, "text/plain; charset=utf-8", "", emptyTags},
+		}
+		assertFiles(t, expected, v, "comparing")
+
+		fi, err := v.Stat("/")
+		fatalfIfErr(t, err, "failed to get stat /bar from virtual file bar")
+		assertEqual(t, "", fi.Name(), "should have name of original file for direct child")
+		assertEqual(t, helloWorldCompressedSha512, fi.Sha512(), "should have foo sha512")
+
+		fi, err = v.StatAt("/", 0)
+		fatalfIfErr(t, err, "failed to get stat /bar at 0 from virtual file bar")
+		assertEqual(t, "", fi.Name(), "should have name of original file for direct child")
+		assertEqual(t, fooSha512, fi.Sha512(), "should have foo sha512")
+
+		fi, err = v.StatAt("/", 1)
+		fatalfIfErr(t, err, "failed to get stat /bar at 1 from virtual file bar")
+		assertEqual(t, "", fi.Name(), "should have name of original file for direct child")
+		assertEqual(t, helloWorldCompressedSha512, fi.Sha512(), "should have foo sha512")
+
+		_, err = v.StatAt("/", 2)
+		assertErr(t, ErrNotFound, err, "should error stat at not existing")
+	})
+}
+
+// this is needed for compressed files (i.e. foo.gz)
 func TestSingleChild(t *testing.T) {
 	tmpDir(t, func(tmp string) {
 		v, err := newFooFs(tmp)
@@ -446,10 +493,10 @@ func TestSingleChild(t *testing.T) {
 		_, err = v.StatAt("/bar", 2)
 		assertErr(t, ErrNotFound, err, "should error stat at not existing")
 
-		_, err = v.TouchWithoutPath(0000, time1)
+		_, err = v.CreateWithoutPath(0000, time1)
 		assertErr(t, ErrAlreadyHasChildren, err, "should error if trying to create child on one with children")
 
-		_, err = newV.Touch("/shouldFail", 0000, time1)
+		_, err = newV.Create("/shouldFail", 0000, time1)
 		assertErr(t, ErrAlreadyHasChild, err, "should error if trying to create children on one with child")
 	})
 }
