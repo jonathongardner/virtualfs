@@ -195,7 +195,8 @@ func (v *Fs) Touch(path string, perm os.FileMode, modTime time.Time) (*Fs, error
 }
 
 // Symlink creates a symlnk at the path
-func (v *Fs) Symlink(oldname, newname string, perm os.FileMode, modTime time.Time) (*Fs, error) {
+// source is the path to the file to link to
+func (v *Fs) Symlink(source, newname string, perm os.FileMode, modTime time.Time) (*Fs, error) {
 	err := v.isClosed()
 	if err != nil {
 		return nil, err
@@ -209,7 +210,31 @@ func (v *Fs) Symlink(oldname, newname string, perm os.FileMode, modTime time.Tim
 		return nil, ErrOutsideFilesystem
 	}
 
-	newRoot, err := v.root.symlink(oldname, paths, perm, modTime)
+	newRoot, err := v.root.symlink(source, paths, perm, modTime)
+	return v.newFs(newRoot), err
+}
+
+// Hardlink creates a hardlink at the path
+// source is the path to the file to link to
+func (v *Fs) Hardlink(source, newname string, perm os.FileMode, modTime time.Time) (*Fs, error) {
+	err := v.isClosed()
+	if err != nil {
+		return nil, err
+	}
+
+	paths, err := split(newname)
+	if err != nil {
+		return nil, err
+	}
+	if len(paths) == 0 {
+		return nil, ErrOutsideFilesystem
+	}
+
+	ln, _, err := v.fileInfoFrom(source, -1)
+	if err != nil {
+		return nil, err
+	}
+	newRoot, err := v.root.hardlink(ln, paths, perm, modTime)
 	return v.newFs(newRoot), err
 }
 

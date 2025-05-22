@@ -180,7 +180,7 @@ func assertFiles(t *testing.T, expectedFileInfo []fileinfoTest, v *Fs, format st
 		return nil
 	})
 	if len(actFileInfo) != len(expectedFileInfo) {
-		t.Fatalf("%v file count doesnt match, exp: %v, act: %v", str, len(actFileInfo), len(actFileInfo))
+		t.Fatalf("%v file count doesnt match, exp: %v, act: %v", str, len(expectedFileInfo), len(actFileInfo))
 	}
 
 	for i, afi := range actFileInfo {

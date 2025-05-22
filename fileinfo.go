@@ -25,12 +25,20 @@ type FileInfo struct {
 
 // ----------------Helpers--------------------
 // newFileInfo creates a new file info object
-func newFileInfo(db *referenceDB, name string, mode os.FileMode, modTime time.Time) *FileInfo {
-	reference := &reference{
-		id:       uuid.New().String(),
-		children: make(map[string]*FileInfo),
-	}
+func newFileInfoWithReference(db *referenceDB, name string, mode os.FileMode, modTime time.Time, reference *reference) *FileInfo {
 	return &FileInfo{db: db, name: name, mode: mode, modTime: modTime, ref: reference}
+}
+func newFileInfo(db *referenceDB, name string, mode os.FileMode, modTime time.Time) *FileInfo {
+	return newFileInfoWithReference(
+		db,
+		name,
+		mode,
+		modTime,
+		&reference{
+			id:       uuid.New().String(),
+			children: make(map[string]*FileInfo),
+		},
+	)
 }
 func (n *FileInfo) setToDir() *FileInfo {
 	n.mode |= fs.ModeDir
@@ -102,9 +110,24 @@ func (fi *FileInfo) Sha512() string {
 	return fi.ref.sha512
 }
 
+// sha1 returns the sha1 of the file
+func (fi *FileInfo) Sha1() string {
+	return fi.ref.sha1
+}
+
 // Filetype returns the filetype of the file
 func (fi *FileInfo) Filetype() filetype.Filetype {
 	return fi.ref.typ
+}
+
+// Mimetype returns the mimetype of the file
+func (fi *FileInfo) Mimetype() string {
+	return fi.ref.typ.Mimetype
+}
+
+// SymlinkPath returns the symlink path of the file
+func (fi *FileInfo) SymlinkPath() string {
+	return fi.symlinkPath
 }
 
 // ErrorId returns the error id of the file
@@ -184,7 +207,7 @@ func (n *FileInfo) Create() (*myFile, error) {
 	return createMyWriterCloser(n, n.Path())
 }
 
-func (n *FileInfo) symlink(oldname string, paths []string, perm os.FileMode, modTime time.Time) (*FileInfo, error) {
+func (n *FileInfo) symlink(linkname string, paths []string, perm os.FileMode, modTime time.Time) (*FileInfo, error) {
 	if len(paths) == 0 {
 		return nil, fmt.Errorf("Symlink needs a path to set")
 	}
@@ -197,7 +220,24 @@ func (n *FileInfo) symlink(oldname string, paths []string, perm os.FileMode, mod
 		return nil, err
 	}
 	// NOTE: orphan this could orphin some references, might want to clean up if reference is not needed
-	return dir.ref.setChildren(newFileInfo(n.db, name, perm, modTime).setToSym(oldname))
+	return dir.ref.setChildren(newFileInfo(n.db, name, perm, modTime).setToSym(linkname))
+}
+
+// ln is the file to link to
+func (n *FileInfo) hardlink(ln *FileInfo, paths []string, perm os.FileMode, modTime time.Time) (*FileInfo, error) {
+	if len(paths) == 0 {
+		// NOTE: orphan this could orphin some references, might want to clean up if reference is not needed
+		return n.ref.setChild(newFileInfo(n.db, n.name, perm, modTime))
+	}
+	last := len(paths) - 1
+	paths, name := paths[:last], paths[last]
+
+	dir, err := n.mkdirP(paths, perm, modTime)
+	if err != nil {
+		return nil, err
+	}
+	// NOTE: orphan this could orphin some references, might want to clean up if reference is not needed
+	return dir.ref.setChildren(newFileInfoWithReference(n.db, name, perm, modTime, ln.ref))
 }
 
 // ---------------------Disk Operations--------------------

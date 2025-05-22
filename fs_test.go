@@ -129,6 +129,27 @@ func TestVirtualOg(t *testing.T) {
 		}
 		assertFiles(t, expected, v, "after creating /foo1/foo2/symlink-nowhere")
 		assertTmpDirFileCount(t, 2, tmp, "after creating /foo1/foo2/symlink-nowhere")
+
+		// Create a hardlink
+		_, err = v.Hardlink("/foo1/foo2/foo3/bar", "/foo1/foo2/hardlink-bar", 0700, time1)
+		fatalfIfErr(t, err, "failed to create hardlink /foo1/foo2/hardlink-bar")
+
+		expected = []fileinfoTest{
+			{"/", fooMod, fooTime, fooSha512, "application/octet-stream", "", emptyTags},
+			{"/foo1", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2/foo3", 0700 | fs.ModeDir, time2, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2/foo3/bar", 0655, time3, helloWorldSha512, "text/plain; charset=utf-8", "", emptyTags},
+			{"/foo1/foo2/foo3/foo4", 0700 | fs.ModeDir, time2, "", "directory/directory", "", emptyTags},
+			{"/foo1/foo2/hardlink-bar", 0700, time1, helloWorldSha512, "text/plain; charset=utf-8", "", emptyTags},
+			{"/foo1/foo2/symlink-bar", 0700 | fs.ModeSymlink, time1, "", "symlink/symlink", "/foo1/foo2/foo3/bar", emptyTags},
+			{"/foo1/foo2/symlink-nowhere", 0777 | fs.ModeSymlink, time2, "", "symlink/symlink", "/cool/beans/who-cares", emptyTags},
+		}
+		assertFiles(t, expected, v, "after creating /foo1/foo2/hardlink-bar")
+		assertTmpDirFileCount(t, 2, tmp, "after creating /foo1/foo2/hardlink-bar")
+
+		_, err = v.Hardlink("/foo1/foo2/foo3/no-where", "/foo1/foo2/hardlink-bar-dont-get-created", 0700, time1)
+		assertErr(t, ErrNotFound, err, "failed to error on bad hardlink /foo1/foo2/hardlink-bar-dont-get-created")
 	})
 }
 
