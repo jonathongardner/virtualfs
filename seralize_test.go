@@ -14,8 +14,8 @@ func TestVirtualClose(t *testing.T) {
 		v, err := newFooFs(tmp)
 		fatalfIfErr(t, err, "Failed to create virtual function")
 
-		v.Root().TagS("foo", "bar")
-		v.Root().TagS("baz", 47)
+		v.TagS("foo", "bar")
+		v.TagS("baz", 47)
 
 		_, err = v.MkdirP("/foo", 0755, time1)
 		fatalfIfErr(t, err, "failed to create virtual folder /foo")
@@ -23,11 +23,11 @@ func TestVirtualClose(t *testing.T) {
 		err = createFile(v, "/foo/bar", 0655, time2, "Hello, World!")
 		fatalfIfErr(t, err, "failed to create virtual file /foo/bar")
 
-		fooV, err := v.FsFrom("/foo/bar")
-		fooV.Root().TagS("foo2", "bar2")
-		fooV.Root().TagS("processed", true)
+		fooV, err := v.Stat("/foo/bar")
+		fooV.TagS("foo2", "bar2")
+		fooV.TagS("processed", true)
 		fatalfIfErr(t, err, "failed to create virtual filesystem /foo/bar")
-		fooV.Root().Warning(fmt.Errorf("yikes! somthing kinda whent wrong"))
+		fooV.Warning(fmt.Errorf("yikes! somthing kinda whent wrong"))
 
 		_, err = v.Symlink("/foo/bar", "/foo/bar-symlink", 0777, time3)
 		fatalfIfErr(t, err, "failed to create symlink /foo/bar-symlink")
@@ -40,8 +40,8 @@ func TestVirtualClose(t *testing.T) {
 		}
 		assertFiles(t, expected, v, "after adding files in virtual file system")
 		assertTmpDirFileCount(t, 2, tmp, "after adding files in virtual file system")
-		assert(t, v.ProcessError() == nil, "should NOT have error if not set")
-		assertErr(t, v.ProcessWarning(), ErrInFilesystem, "after setting warning")
+		assert(t, v.FsError() == nil, "should NOT have error if not set")
+		assertErr(t, v.FsWarning(), ErrInFilesystem, "after setting warning")
 
 		//------------ Close
 		err = v.Close()
@@ -87,8 +87,8 @@ func TestVirtualClose(t *testing.T) {
 		)
 		assertFiles(t, newExpected, newV, "after creating files in virtual from")
 		assertTmpDirFileCount(t, 3, tmp, "after creating in virtual from")
-		assert(t, newV.ProcessError() == nil, "should NOT have error on load if it wasnt set before save")
-		assertErr(t, newV.ProcessWarning(), ErrInFilesystem, "should have warning when loading")
+		assert(t, newV.FsError() == nil, "should NOT have error on load if it wasnt set before save")
+		assertErr(t, newV.FsWarning(), ErrInFilesystem, "should have warning when loading")
 	})
 }
 
@@ -104,9 +104,9 @@ func TestVirtualCloseWithErr(t *testing.T) {
 		err = createFile(v, "/foo/bar", 0655, time2, "Hello, World!")
 		fatalfIfErr(t, err, "failed to create virtual file /foo/bar")
 
-		fooV, err := v.FsFrom("/foo/bar")
+		fooV, err := v.Stat("/foo/bar")
 		fatalfIfErr(t, err, "failed to create virtual filesystem /foo/bar")
-		fooV.Root().Error(fmt.Errorf("yikes! somthing whent wrong"))
+		fooV.Error(fmt.Errorf("yikes! somthing whent wrong"))
 
 		_, err = v.Symlink("/foo/bar", "/foo/bar-symlink", 0777, time3)
 		fatalfIfErr(t, err, "failed to create symlink /foo/bar-symlink")
@@ -119,8 +119,8 @@ func TestVirtualCloseWithErr(t *testing.T) {
 		}
 		assertFiles(t, expected, v, "after adding files in virtual file system")
 		assertTmpDirFileCount(t, 2, tmp, "after adding files in virtual file system")
-		assertErr(t, v.ProcessError(), ErrInFilesystem, "after setting error")
-		assert(t, v.ProcessWarning() == nil, "should not have warning if not set")
+		assertErr(t, v.FsError(), ErrInFilesystem, "after setting error")
+		assert(t, v.FsWarning() == nil, "should not have warning if not set")
 
 		//------------ Close
 		err = v.Close()
@@ -165,7 +165,7 @@ func TestVirtualCloseWithErr(t *testing.T) {
 		)
 		assertFiles(t, newExpected, newV, "after creating files in virtual from")
 		assertTmpDirFileCount(t, 3, tmp, "after creating in virtual from")
-		assertErr(t, newV.ProcessError(), ErrInFilesystem, "should have error when loading")
-		assert(t, newV.ProcessWarning() == nil, "should NOT have warning after loading if wasnt set")
+		assertErr(t, newV.FsError(), ErrInFilesystem, "should have error when loading")
+		assert(t, newV.FsWarning() == nil, "should NOT have warning after loading if wasnt set")
 	})
 }

@@ -27,8 +27,8 @@ type reference struct {
 	err      error
 	warn     []error
 	tags     sync.Map
-	child    *FileInfo
-	children map[string]*FileInfo
+	child    *Fs
+	children map[string]*Fs
 }
 
 func (r *reference) storagePath(storageDir string) string {
@@ -48,20 +48,20 @@ func (r *reference) open(storageDir string) (*os.File, error) {
 
 // Return old value, if old valud is true then it was already extracted
 // might should return an error for that?
-func (r *reference) getChildren(name string) (*FileInfo, error) {
+func (r *reference) getChildren(name string) (*Fs, error) {
 	if r.child != nil {
 		return nil, fmt.Errorf("has child not children %v", name)
 	}
 	return r.children[name], nil
 }
-func (r *reference) setChildren(child *FileInfo) (*FileInfo, error) {
+func (r *reference) setChildren(child *Fs) (*Fs, error) {
 	if r.child != nil {
 		return nil, ErrAlreadyHasChild
 	}
 	r.children[child.name] = child
 	return child, nil
 }
-func (r *reference) setChild(child *FileInfo) (*FileInfo, error) {
+func (r *reference) setChild(child *Fs) (*Fs, error) {
 	if len(r.children) != 0 {
 		return nil, ErrAlreadyHasChildren
 	}

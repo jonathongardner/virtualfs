@@ -21,11 +21,11 @@ var bufferSize = 512 * 1024 * 1024 // 512 * 1MB
 type myFile struct {
 	identifiers *identifiers.Writer
 	file        destination
-	node        *FileInfo
+	node        *Fs
 }
 
 // createCachedMyWriterCloser creates a new myFile writer with cached file
-func createMyWriterCloser(node *FileInfo, path string) (*myFile, error) {
+func createMyWriterCloser(node *Fs, path string) (*myFile, error) {
 	file, err := buffer.NewFileWriter(path, bufferSize)
 	if err != nil {
 		return nil, err

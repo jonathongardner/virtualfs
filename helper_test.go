@@ -160,7 +160,7 @@ func assertFiles(t *testing.T, expectedFileInfo []fileinfoTest, v *Fs, format st
 	count := 0
 	// TODO: push thes to a struct than compare
 	actFileInfo := []fileinfoTest{}
-	v.Walk("/", func(path string, fi *FileInfo) error {
+	v.Walk("/", func(path string, fi *Fs) error {
 		fit := fileinfoTest{
 			path:        path,
 			mode:        fi.mode,
@@ -208,7 +208,7 @@ func assertPaths(t *testing.T, expectedPaths []string, v *Fs, format string, arg
 	str := fmt.Sprintf(format, args...)
 
 	count := 0
-	v.Walk("/", func(path string, _fi *FileInfo) error {
+	v.Walk("/", func(path string, _fi *Fs) error {
 		expectedPath := expectedPaths[0]
 		expectedPaths = expectedPaths[1:]
 

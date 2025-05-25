@@ -12,11 +12,11 @@ import (
 )
 
 func (v *Fs) FinDBPath() string {
-	return v.root.db.finDBPath()
+	return v.db.finDBPath()
 }
 
 func (v *Fs) DBDir() string {
-	return v.root.db.storageDir
+	return v.db.storageDir
 }
 
 func (v *Fs) save() error {
@@ -27,7 +27,7 @@ func (v *Fs) save() error {
 	}
 	defer file.Close()
 
-	err = v.Walk("/", func(path string, info *FileInfo) error {
+	err = v.Walk("/", func(path string, info *Fs) error {
 		toSave := map[string]any{"path": path, "info": fileInfoToMap(info)}
 		jsonString, _ := json.Marshal(toSave)
 		// encoder := json.NewEncoder(file)
@@ -47,9 +47,9 @@ func (v *Fs) save() error {
 }
 
 func (v *Fs) load(storageDir string) error {
-	db := newReferenceDB(storageDir)
+	v.db = newReferenceDB(storageDir)
 
-	dbFile := db.finDBPath()
+	dbFile := v.db.finDBPath()
 	file, err := os.Open(dbFile)
 	if err != nil {
 		return fmt.Errorf("error opening db file - %v", err)
@@ -57,41 +57,39 @@ func (v *Fs) load(storageDir string) error {
 	defer file.Close()
 
 	sc := bufio.NewScanner(file)
+
+	sc.Scan()
+	path, err := unmarshal(v, sc.Bytes())
+	if err != nil {
+		return fmt.Errorf("error unmarshalling root Fs - %v", err)
+	}
+	if path != "/" {
+		return fmt.Errorf("first path should be / %v", path)
+	}
+
 	for sc.Scan() {
-		toLoad := make(map[string]any)
-		err := json.Unmarshal(sc.Bytes(), &toLoad)
+		fs := &Fs{db: v.db}
+		path, err := unmarshal(fs, sc.Bytes())
 		if err != nil {
-			return fmt.Errorf("error decoding db line - %v", err)
+			return fmt.Errorf("error unmarshinling Fs - %v", err)
 		}
-		path := toLoad["path"].(string)
 
-		fileInfo, err := mapToFileInfo(db, toLoad["info"].(map[string]any))
+		parentNode := v
+		paths, err := split(path)
 		if err != nil {
-			return fmt.Errorf("error decoding FileInfo - %v", err)
+			return err
+		}
+		end := len(paths) - 1
+		// TODO: need to handle single child paths...
+		for _, p := range paths[:end] {
+			var ok bool
+			parentNode, ok = parentNode.ref.children[p]
+			if !ok {
+				return fmt.Errorf("error getting FileInfo %v", path)
+			}
 		}
 
-		if path == "/" {
-			v.root = fileInfo
-		} else {
-			if v.root == nil {
-				return fmt.Errorf("root FileInfo not set")
-			}
-			parentNode := v.root
-			paths, err := split(path)
-			if err != nil {
-				return err
-			}
-			end := len(paths) - 1
-			for _, p := range paths[:end] {
-				var ok bool
-				parentNode, ok = parentNode.ref.children[p]
-				if !ok {
-					return fmt.Errorf("error getting FileInfo %v", path)
-				}
-			}
-
-			parentNode.ref.children[paths[end]] = fileInfo
-		}
+		parentNode.ref.children[paths[end]] = fs
 	}
 
 	err = sc.Err()
@@ -104,15 +102,11 @@ func (v *Fs) load(storageDir string) error {
 		return fmt.Errorf("error removing db - %v", err)
 	}
 
-	if v.root == nil {
-		return fmt.Errorf("no paths in database")
-	}
-
 	return nil
 }
 
 // ------------------------------JSON stuff--------------------------------
-func fileInfoToMap(n *FileInfo) map[string]any {
+func fileInfoToMap(n *Fs) map[string]any {
 	toReturn := make(map[string]any)
 	toReturn["name"] = n.name
 	toReturn["mode"] = uint32(n.mode)
@@ -149,47 +143,53 @@ func fileInfoToMap(n *FileInfo) map[string]any {
 	return toReturn
 }
 
-func mapToFileInfo(db *referenceDB, data map[string]any) (*FileInfo, error) {
+func unmarshal(n *Fs, dataBytes []byte) (string, error) {
+	toLoad := make(map[string]any)
+	if err := json.Unmarshal(dataBytes, &toLoad); err != nil {
+		return "", fmt.Errorf("error decoding db line - %v", err)
+	}
+	path := toLoad["path"].(string)
+	data := toLoad["info"].(map[string]any)
+
 	var err error
 	var ok bool
-	n := &FileInfo{db: db}
 	n.name, ok = data["name"].(string)
 	if !ok {
-		return nil, fmt.Errorf("error getting name: %v", data["name"])
+		return path, fmt.Errorf("error getting name: %v", data["name"])
 	}
 
 	mod, ok := data["mode"].(float64)
 	if !ok {
-		return nil, fmt.Errorf("error getting mode: %v", data["mode"])
+		return path, fmt.Errorf("error getting mode: %v", data["mode"])
 	}
 	n.mode = os.FileMode(uint32(mod))
 
 	modTime, ok := data["modTime"].(string)
 	if !ok {
-		return nil, fmt.Errorf("error getting modTime: %v", data["modTime"])
+		return path, fmt.Errorf("error getting modTime: %v", data["modTime"])
 	}
 	n.modTime, err = time.Parse(time.RFC3339, modTime)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing modTime %v", err)
+		return path, fmt.Errorf("error parsing modTime %v", err)
 	}
 
-	ref := &reference{children: make(map[string]*FileInfo)}
+	ref := &reference{children: make(map[string]*Fs)}
 	n.ref = ref
 
 	ref.id, ok = data["id"].(string)
 	if !ok {
-		return nil, fmt.Errorf("error getting id: %v", data["id"])
+		return path, fmt.Errorf("error getting id: %v", data["id"])
 	}
 
 	typ, ok := data["type"].(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("error getting type: %v", data["type"])
+		return path, fmt.Errorf("error getting type: %v", data["type"])
 	}
 	ref.typ = filetype.FiletypeFromJson(typ)
 
 	tags, ok := data["tags"].(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("error getting tags: %v", data["tags"])
+		return path, fmt.Errorf("error getting tags: %v", data["tags"])
 	}
 	for k, v := range tags {
 		ref.tags.Store(k, v)
@@ -199,9 +199,9 @@ func mapToFileInfo(db *referenceDB, data map[string]any) (*FileInfo, error) {
 	if ok {
 		errValue, ok := data["error"].(string)
 		if !ok {
-			return nil, fmt.Errorf("error getting error: %v", data["error"])
+			return path, fmt.Errorf("error getting error: %v", data["error"])
 		}
-		db.err = true
+		n.db.err = true
 		ref.err = fmt.Errorf(errValue)
 	}
 
@@ -209,13 +209,13 @@ func mapToFileInfo(db *referenceDB, data map[string]any) (*FileInfo, error) {
 	if ok {
 		warnValues, ok := data["warning"].([]any)
 		if !ok {
-			return nil, fmt.Errorf("error getting warning: %v", data["warning"])
+			return path, fmt.Errorf("error getting warning: %v", data["warning"])
 		}
-		db.warn = true
+		n.db.warn = true
 		for i, warnValue := range warnValues {
 			wv, ok := warnValue.(string)
 			if !ok {
-				return nil, fmt.Errorf("error getting warning.%v: %v", i, wv)
+				return path, fmt.Errorf("error getting warning.%v: %v", i, wv)
 			}
 			ref.warn = append(ref.warn, fmt.Errorf(wv))
 		}
@@ -226,45 +226,45 @@ func mapToFileInfo(db *referenceDB, data map[string]any) (*FileInfo, error) {
 	} else if ref.typ == filetype.Symlink {
 		n.symlinkPath, ok = data["symlink"].(string)
 		if !ok {
-			return nil, fmt.Errorf("error getting symlinkPath: %v", data["symlink"])
+			return path, fmt.Errorf("error getting symlinkPath: %v", data["symlink"])
 		}
 		n.ref = ref
 	} else {
 		size, ok := data["size"].(float64)
 		if !ok {
-			return nil, fmt.Errorf("error getting size: %v", data["size"])
+			return path, fmt.Errorf("error getting size: %v", data["size"])
 		}
 		ref.size = int64(size)
 
 		ref.md5, ok = data["md5"].(string)
 		if !ok {
-			return nil, fmt.Errorf("error getting md5: %v", data["md5"])
+			return path, fmt.Errorf("error getting md5: %v", data["md5"])
 		}
 		ref.sha1, ok = data["sha1"].(string)
 		if !ok {
-			return nil, fmt.Errorf("error getting sha1: %v", data["sha1"])
+			return path, fmt.Errorf("error getting sha1: %v", data["sha1"])
 		}
 		ref.sha256, ok = data["sha256"].(string)
 		if !ok {
-			return nil, fmt.Errorf("error getting sha256: %v", data["sha256"])
+			return path, fmt.Errorf("error getting sha256: %v", data["sha256"])
 		}
 		ref.sha512, ok = data["sha512"].(string)
 		if !ok {
-			return nil, fmt.Errorf("error getting sha512: %v", data["sha512"])
+			return path, fmt.Errorf("error getting sha512: %v", data["sha512"])
 		}
 		ref.entropy, ok = data["entropy"].(float64)
 		if !ok {
-			return nil, fmt.Errorf("error getting entropy: %v", data["entropy"])
+			return path, fmt.Errorf("error getting entropy: %v", data["entropy"])
 		}
 
 		// if its a file, therfore it has a checksum so use this
-		path := filepath.Join(db.storageDir, ref.id)
+		path := filepath.Join(n.db.storageDir, ref.id)
 		if _, err := os.Stat(path); err != nil {
-			return nil, fmt.Errorf("error getting file %v", err)
+			return path, fmt.Errorf("error getting file %v", err)
 		}
 		// if sha512 already seen it will return that reference otherwise it creates a new one
 		n.updateIfDuplicateRef()
 	}
 
-	return n, nil
+	return path, nil
 }

@@ -16,7 +16,7 @@ func createFile(v *Fs, path string, perm os.FileMode, modTime time.Time, content
 	if err != nil {
 		return fmt.Errorf("failed to create virtual file  %v", err)
 	}
-	file, err := newV.Root().Create()
+	file, err := newV.CreateFile()
 	if err != nil {
 		return fmt.Errorf("failed to create file  %v", err)
 	}
@@ -37,7 +37,7 @@ func createChildFile(v *Fs, perm os.FileMode, modTime time.Time, content string)
 	if err != nil {
 		return fmt.Errorf("failed to create virtual file  %v", err)
 	}
-	file, err := newV.Root().Create()
+	file, err := newV.CreateFile()
 	if err != nil {
 		return fmt.Errorf("failed to create file  %v", err)
 	}
@@ -248,7 +248,7 @@ func TestVirtualUsesReferencesForSameFile(t *testing.T) {
 		fatalfIfErr(t, err, "failed to create virtual file /baz")
 
 		// should get added to both bar and baz since they are the same file
-		newV, err := v.FsFrom("/baz")
+		newV, err := v.Stat("/baz")
 		fatalfIfErr(t, err, "failed to create virtual filesystem from baz")
 
 		err = createFile(newV, "/moreFoo", 0100, time3, "Hello, Foo!")
@@ -333,7 +333,7 @@ func TestVirtualFrom(t *testing.T) {
 		err = createFile(v, "/bar", 0655, time1, "Hello, World!")
 		fatalfIfErr(t, err, "failed to create virtual file /bar")
 
-		newV, err := v.FsFrom("/bar")
+		newV, err := v.Stat("/bar")
 		fatalfIfErr(t, err, "failed to create virtual from bar")
 
 		newV.MkdirP("/", 0700, time1)  // shouldnt change anything cause root
@@ -357,30 +357,28 @@ func TestTags(t *testing.T) {
 		v, err := newFooFs(tmp)
 		fatalfIfErr(t, err, "failed to create virtual function")
 
-		root := v.Root()
-
-		_, ok := root.TagG("foo")
+		_, ok := v.TagG("foo")
 		assert(t, !ok, "foo value should not be set yet")
 
-		root.TagS("foo", 47)
-		val, ok := root.TagG("foo")
+		v.TagS("foo", 47)
+		val, ok := v.TagG("foo")
 		assert(t, ok, "foo value should be set")
 		assertEqual(t, 47, val, "should set key foo to 47")
 
-		root.TagS("foo", 53)
-		val, ok = root.TagG("foo")
+		v.TagS("foo", 53)
+		val, ok = v.TagG("foo")
 		assert(t, ok, "foo value should still be set")
 		assertEqual(t, 53, val, "should set key foo to 53")
 
-		err = root.TagSIfBlank("foo", 7)
+		err = v.TagSIfBlank("foo", 7)
 		assertErr(t, ErrAlreadyExist, err, "should return already set error")
-		val, ok = root.TagG("foo")
+		val, ok = v.TagG("foo")
 		assert(t, ok, "foo value should still be set")
 		assertEqual(t, 53, val, "key foo should still be set to 53")
 
-		err = root.TagSIfBlank("bar", 7)
+		err = v.TagSIfBlank("bar", 7)
 		assertEqual(t, nil, err, "should not return error since not set yet")
-		val, ok = root.TagG("bar")
+		val, ok = v.TagG("bar")
 		assert(t, ok, "bar value should be set")
 		assertEqual(t, 7, val, "should set key bar to 53")
 	})
@@ -413,7 +411,7 @@ func TestSingleRootChild(t *testing.T) {
 		err = createChildFile(v, 0700, time2, "sZ�f�H�����/�IQ����")
 		fatalfIfErr(t, err, "failed to create child")
 
-		newV, err := v.FsFrom("/")
+		newV, err := v.Stat("/")
 		fatalfIfErr(t, err, "failed to create virtual filesystemfrom bar compressed")
 
 		err = createFile(newV, "/moreFoo", 0100, time3, "Hello, Foo!")
@@ -455,13 +453,13 @@ func TestSingleChild(t *testing.T) {
 		err = createFile(v, "/bar", 0655, time1, "Hello, World!")
 		fatalfIfErr(t, err, "failed to create virtual file /bar")
 
-		newV, err := v.FsFrom("/bar")
+		newV, err := v.Stat("/bar")
 		fatalfIfErr(t, err, "failed to create virtual from bar")
 
 		err = createChildFile(newV, 0700, time2, "sZ�f�H�����/�IQ����")
 		fatalfIfErr(t, err, "failed to create child")
 
-		newVV, err := v.FsFrom("/bar")
+		newVV, err := v.Stat("/bar")
 		fatalfIfErr(t, err, "failed to create virtual filesystemfrom bar compressed")
 
 		err = createFile(newVV, "/moreFoo", 0100, time3, "Hello, Foo!")
