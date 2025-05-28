@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestVirtualClose(t *testing.T) {
+func TestVirtualCloseOG(t *testing.T) {
 	tmpDir(t, func(tmp string) {
 		//------------ Setup Filesystem
 		v, err := newFooFs(tmp)
@@ -20,14 +20,20 @@ func TestVirtualClose(t *testing.T) {
 		_, err = v.MkdirP("/foo", 0755, time1)
 		fatalfIfErr(t, err, "failed to create virtual folder /foo")
 
-		err = createFile(v, "/foo/bar", 0655, time2, "Hello, World!")
+		err = createFile(v, "/foo/bar", 0655, time2, "sZ�f�H�����/�IQ����")
 		fatalfIfErr(t, err, "failed to create virtual file /foo/bar")
+		foo1V, err := v.Stat("/foo/bar")
+		fatalfIfErr(t, err, "failed to get virtual file /foo/bar")
+		foo1V.TagS("processed", true)
 
-		fooV, err := v.Stat("/foo/bar")
-		fooV.TagS("foo2", "bar2")
-		fooV.TagS("processed", true)
-		fatalfIfErr(t, err, "failed to create virtual filesystem /foo/bar")
-		fooV.Warning(fmt.Errorf("yikes! somthing kinda whent wrong"))
+		err = createChildFile(foo1V, 0622, time1, "Hello, World!")
+		fatalfIfErr(t, err, "failed to create virtual file /foo/bar")
+		foo2V, err := v.Stat("/foo/bar")
+		fatalfIfErr(t, err, "failed to get virtual file /foo/bar again")
+
+		foo2V.TagS("foo2", "bar2")
+		foo2V.TagS("processed", true)
+		foo2V.Warning(fmt.Errorf("yikes! somthing kinda whent wrong"))
 
 		_, err = v.Symlink("/foo/bar", "/foo/bar-symlink", 0777, time3)
 		fatalfIfErr(t, err, "failed to create symlink /foo/bar-symlink")
@@ -35,18 +41,19 @@ func TestVirtualClose(t *testing.T) {
 		expected := []fileinfoTest{
 			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", map[any]any{"foo": "bar", "baz": 47}},
 			{"/foo", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
-			{"/foo/bar", 0655, time2, helloWorldSha512, "text/plain; charset=utf-8", "", map[any]any{"foo2": "bar2", "processed": true}},
+			{"/foo/bar", 0655, time2, helloWorldCompressedSha512, "text/plain; charset=utf-8", "", map[any]any{"processed": true}},
+			{"/foo/bar", 0622, time1, helloWorldSha512, "text/plain; charset=utf-8", "", map[any]any{"foo2": "bar2", "processed": true}},
 			{"/foo/bar-symlink", 0777 | fs.ModeSymlink, time3, "", "symlink/symlink", "/foo/bar", emptyTags},
 		}
 		assertFiles(t, expected, v, "after adding files in virtual file system")
-		assertTmpDirFileCount(t, 2, tmp, "after adding files in virtual file system")
+		assertTmpDirFileCount(t, 3, tmp, "after adding files in virtual file system")
 		assert(t, v.FsError() == nil, "should NOT have error if not set")
 		assertErr(t, v.FsWarning(), ErrInFilesystem, "after setting warning")
 
 		//------------ Close
 		err = v.Close()
 		fatalfIfErr(t, err, "error closing file /foo1/foo2/foo3/bar")
-		assertTmpDirFileCount(t, 3, tmp, "after closing virtual file system")
+		assertTmpDirFileCount(t, 4, tmp, "after closing virtual file system")
 
 		//------------ Make sure DB file exists
 		_, err = os.Stat(filepath.Join(tmp, "fin.db"))
@@ -104,9 +111,9 @@ func TestVirtualCloseWithErr(t *testing.T) {
 		err = createFile(v, "/foo/bar", 0655, time2, "Hello, World!")
 		fatalfIfErr(t, err, "failed to create virtual file /foo/bar")
 
-		fooV, err := v.Stat("/foo/bar")
+		foo2V, err := v.Stat("/foo/bar")
 		fatalfIfErr(t, err, "failed to create virtual filesystem /foo/bar")
-		fooV.Error(fmt.Errorf("yikes! somthing whent wrong"))
+		foo2V.Error(fmt.Errorf("yikes! somthing whent wrong"))
 
 		_, err = v.Symlink("/foo/bar", "/foo/bar-symlink", 0777, time3)
 		fatalfIfErr(t, err, "failed to create symlink /foo/bar-symlink")
