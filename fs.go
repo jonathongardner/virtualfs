@@ -36,7 +36,7 @@ func NewFsFromDb(storageDir string) (*Fs, error) {
 func NewFs(storageDir, name string, mode os.FileMode, modTime time.Time, r io.Reader) (*Fs, error) {
 	err := os.Mkdir(storageDir, 0755)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create storage dir: %v", err)
+		return nil, fmt.Errorf("unable to create storage dir: %w", err)
 	}
 
 	fs := newFileInfo(newReferenceDB(storageDir), name, mode, modTime)
@@ -44,7 +44,7 @@ func NewFs(storageDir, name string, mode os.FileMode, modTime time.Time, r io.Re
 		fs.setToDir()
 	} else {
 		if err := fs.copyReader(r); err != nil {
-			return nil, fmt.Errorf("couldn't copy from reader (%v) - %v", name, err)
+			return nil, fmt.Errorf("couldn't copy from reader (%v) - %w", name, err)
 		}
 	}
 
@@ -88,11 +88,34 @@ func (n *Fs) setToSym(oldname string) *Fs {
 
 // updateIfDuplicateRef if sha512 already seen it will use that ref and return true
 // if its the first time we see the sha512 then dont change anything and return false
-func (n *Fs) updateIfDuplicateRef() bool {
-	var set bool
-	n.ref, set = n.db.setIfEmpty(n.ref)
-	// if its no new than it was updated
-	return !set
+func (n *Fs) updateIfDuplicateRef() (updated bool, err error) {
+	oldRef := n.ref
+
+	n.ref, updated = n.db.updateIfDuplicate(n.ref)
+	if updated {
+		err = n.checkIfCircular(n.ref.sha512, true)
+		if err != nil {
+			n.ref = oldRef // revert to old reference
+			updated = false
+		}
+	}
+	return
+}
+
+func (n *Fs) checkIfCircular(sha512 string, ignore bool) error {
+	if !ignore && n.ref.sha512 == sha512 {
+		return ErrCircularReference
+	}
+
+	for _, child := range n.ref.children {
+		if err := child.checkIfCircular(sha512, false); err != nil {
+			return err
+		}
+	}
+	if n.ref.child != nil {
+		return n.ref.child.checkIfCircular(sha512, false)
+	}
+	return nil
 }
 
 // ----------------Helpers--------------------

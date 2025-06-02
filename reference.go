@@ -35,13 +35,13 @@ func (r *reference) storagePath(storageDir string) string {
 	return filepath.Join(storageDir, r.id)
 }
 
-func (r *reference) remove(storageDir string) error {
-	return os.Remove(r.storagePath(storageDir))
-}
+// func (r *reference) remove(storageDir string) error {
+// 	return os.Remove(r.storagePath(storageDir))
+// }
 
-func (r *reference) create(storageDir string) (*os.File, error) {
-	return os.Create(r.storagePath(storageDir))
-}
+//	func (r *reference) create(storageDir string) (*os.File, error) {
+//		return os.Create(r.storagePath(storageDir))
+//	}
 func (r *reference) open(storageDir string) (*os.File, error) {
 	return os.Open(r.storagePath(storageDir))
 }

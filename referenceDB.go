@@ -17,16 +17,21 @@ func newReferenceDB(storageDir string) *referenceDB {
 	return &referenceDB{storageDir: storageDir, err: false, warn: false, refMap: make(map[string]*reference)}
 }
 
-func (rdb *referenceDB) setIfEmpty(passedRef *reference) (*reference, bool) {
+func (rdb *referenceDB) updateIfDuplicate(passedRef *reference) (*reference, bool) {
+	// dont update if the sha512 is empty
+	if passedRef.sha512 == "" {
+		return passedRef, false
+	}
+
 	rdb.mu.Lock()
 	defer rdb.mu.Unlock()
 
 	if ref, ok := rdb.refMap[passedRef.sha512]; ok {
-		return ref, false
+		return ref, true
 	}
 
 	rdb.refMap[passedRef.sha512] = passedRef
-	return passedRef, true
+	return passedRef, false
 }
 
 func (rdb *referenceDB) finDBPath() string {

@@ -63,7 +63,12 @@ func (mwc *myFile) Close() error {
 	ref.typ = identifiers.Filetype
 
 	// if updated than we have seen this sha512 before so no need to keep the file
-	if mwc.node.updateIfDuplicateRef() {
+	updated, err := mwc.node.updateIfDuplicateRef()
+	if err != nil {
+		return fmt.Errorf("error updating reference %w", err)
+	}
+
+	if updated {
 		if err := mwc.file.Delete(); err != nil {
 			return fmt.Errorf("error deleting file %w", err)
 		}

@@ -1,0 +1,11 @@
+# https://golangci-lint.run/usage/configuration/
+version: "2"
+
+formatters:
+  enable:
+    - gofmt
+linters:
+  enable:
+    - errorlint
+  disable:
+    - errcheck

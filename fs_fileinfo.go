@@ -3,8 +3,6 @@ package virtualfs
 import (
 	"fmt"
 	"os"
-	"path/filepath"
-	"slices"
 	"time"
 
 	"github.com/jonathongardner/fifo/filetype"
@@ -90,35 +88,6 @@ func (n *Fs) hardlink(ln *Fs, paths []string, perm os.FileMode, modTime time.Tim
 
 // ---------------------Disk Operations--------------------
 
-func (n *Fs) walkRecursive(path string, callback func(string, *Fs) error) error {
-	err := callback(path, n)
-	if err == ErrDontWalk {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-
-	if n.ref.child != nil {
-		if err := n.ref.child.walkRecursive(path, callback); err != nil {
-			return err
-		}
-	} else if len(n.ref.children) > 0 {
-		names := make([]string, 0, len(n.ref.children))
-		for n := range n.ref.children {
-			names = append(names, n)
-		}
-		slices.Sort(names)
-		for _, name := range names {
-			if err := n.ref.children[name].walkRecursive(filepath.Join(path, name), callback); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
 func (n *Fs) travelTo(paths []string, at int) (*Fs, error) {
 	// we want to return the last child i.e. if ask for path `/foo/bar.gz` we need to get the extracted `gz` file
 	if n.ref.child != nil && at != 0 {
@@ -129,7 +98,8 @@ func (n *Fs) travelTo(paths []string, at int) (*Fs, error) {
 	}
 	if len(paths) == 0 {
 		if at > 0 {
-			return nil, ErrNotFound
+			// still return last found
+			return n, ErrNotFound
 		}
 
 		return n, nil
@@ -139,7 +109,7 @@ func (n *Fs) travelTo(paths []string, at int) (*Fs, error) {
 	if ok {
 		return toWalk.travelTo(paths[1:], at)
 	}
-	return nil, ErrNotFound
+	return n, ErrNotFound
 }
 
 // ---------------------FileInfo Methods--------------------

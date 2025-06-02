@@ -20,20 +20,26 @@ func TestVirtualCloseOG(t *testing.T) {
 		_, err = v.MkdirP("/foo", 0755, time1)
 		fatalfIfErr(t, err, "failed to create virtual folder /foo")
 
-		err = createFile(v, "/foo/bar", 0655, time2, "sZ�f�H�����/�IQ����")
+		err = createFile(v, "/foo/bar", 0655, time2, helloWorldCompressed)
 		fatalfIfErr(t, err, "failed to create virtual file /foo/bar")
 		foo1V, err := v.Stat("/foo/bar")
 		fatalfIfErr(t, err, "failed to get virtual file /foo/bar")
 		foo1V.TagS("processed", true)
 
-		err = createChildFile(foo1V, 0622, time1, "Hello, World!")
+		err = createChildFile(foo1V, 0611, time1, "Hello, Foo!")
 		fatalfIfErr(t, err, "failed to create virtual file /foo/bar")
 		foo2V, err := v.Stat("/foo/bar")
 		fatalfIfErr(t, err, "failed to get virtual file /foo/bar again")
-
-		foo2V.TagS("foo2", "bar2")
 		foo2V.TagS("processed", true)
-		foo2V.Warning(fmt.Errorf("yikes! somthing kinda whent wrong"))
+
+		err = createChildFile(foo2V, 0622, time1, "Hello, World!")
+		fatalfIfErr(t, err, "failed to create virtual file /foo/bar")
+		foo3V, err := v.Stat("/foo/bar")
+		fatalfIfErr(t, err, "failed to get virtual file /foo/bar again")
+
+		foo3V.TagS("foo2", "bar2")
+		foo3V.TagS("processed", true)
+		foo3V.Warning(fmt.Errorf("yikes! somthing kinda whent wrong"))
 
 		_, err = v.Symlink("/foo/bar", "/foo/bar-symlink", 0777, time3)
 		fatalfIfErr(t, err, "failed to create symlink /foo/bar-symlink")
@@ -41,19 +47,20 @@ func TestVirtualCloseOG(t *testing.T) {
 		expected := []fileinfoTest{
 			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", map[any]any{"foo": "bar", "baz": 47}},
 			{"/foo", 0755 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
-			{"/foo/bar", 0655, time2, helloWorldCompressedSha512, "text/plain; charset=utf-8", "", map[any]any{"processed": true}},
+			{"/foo/bar", 0655, time2, helloWorldCompressedSha512, "application/gzip", "", map[any]any{"processed": true}},
+			{"/foo/bar", 0611, time1, helloFooSha512, "text/plain; charset=utf-8", "", map[any]any{"processed": true}},
 			{"/foo/bar", 0622, time1, helloWorldSha512, "text/plain; charset=utf-8", "", map[any]any{"foo2": "bar2", "processed": true}},
 			{"/foo/bar-symlink", 0777 | fs.ModeSymlink, time3, "", "symlink/symlink", "/foo/bar", emptyTags},
 		}
 		assertFiles(t, expected, v, "after adding files in virtual file system")
-		assertTmpDirFileCount(t, 3, tmp, "after adding files in virtual file system")
-		assert(t, v.FsError() == nil, "should NOT have error if not set")
-		assertErr(t, v.FsWarning(), ErrInFilesystem, "after setting warning")
+		assertTmpDirFileCount(t, 4, tmp, "after adding files in virtual file system")
+		fatalfIfErr(t, v.FsError(), "should NOT have error if not set")
+		assertErr(t, ErrInFilesystem, v.FsWarning(), "after setting warning")
 
 		//------------ Close
 		err = v.Close()
 		fatalfIfErr(t, err, "error closing file /foo1/foo2/foo3/bar")
-		assertTmpDirFileCount(t, 4, tmp, "after closing virtual file system")
+		assertTmpDirFileCount(t, 5, tmp, "after closing virtual file system")
 
 		//------------ Make sure DB file exists
 		_, err = os.Stat(filepath.Join(tmp, "fin.db"))
@@ -74,7 +81,7 @@ func TestVirtualCloseOG(t *testing.T) {
 		newV, err := NewFsFromDb(tmp)
 		fatalfIfErr(t, err, "failed to create filesystem from dir")
 		assertFiles(t, expected, newV, "after loading files in virtual from")
-		assertTmpDirFileCount(t, 2, tmp, "after loading fs should delete manifest")
+		assertTmpDirFileCount(t, 4, tmp, "after loading fs should delete manifest")
 
 		_, err = newV.MkdirP("/foo/new-folder", 0155, time1)
 		fatalfIfErr(t, err, "failed to create virtual folder /foo/new-folder")
@@ -89,13 +96,15 @@ func TestVirtualCloseOG(t *testing.T) {
 		newExpected := append(
 			expected,
 			fileinfoTest{"/foo/duplicate", 0200, time2, helloWorldSha512, "text/plain; charset=utf-8", "", map[any]any{"foo2": "bar2", "processed": true}},
-			fileinfoTest{"/foo/new-file", 0655, time3, helloFooSha512, "text/plain; charset=utf-8", "", emptyTags},
+			fileinfoTest{"/foo/new-file", 0655, time3, helloFooSha512, "text/plain; charset=utf-8", "", map[any]any{"processed": true}},
+			// same sha512 as above, so same children
+			fileinfoTest{"/foo/new-file", 0622, time1, helloWorldSha512, "text/plain; charset=utf-8", "", map[any]any{"foo2": "bar2", "processed": true}},
 			fileinfoTest{"/foo/new-folder", 0155 | fs.ModeDir, time1, "", "directory/directory", "", emptyTags},
 		)
 		assertFiles(t, newExpected, newV, "after creating files in virtual from")
-		assertTmpDirFileCount(t, 3, tmp, "after creating in virtual from")
-		assert(t, newV.FsError() == nil, "should NOT have error on load if it wasnt set before save")
-		assertErr(t, newV.FsWarning(), ErrInFilesystem, "should have warning when loading")
+		assertTmpDirFileCount(t, 4, tmp, "after creating in virtual from")
+		fatalfIfErr(t, newV.FsError(), "should NOT have error on load if it wasnt set before save")
+		assertErr(t, ErrInFilesystem, newV.FsWarning(), "should have warning when loading")
 	})
 }
 

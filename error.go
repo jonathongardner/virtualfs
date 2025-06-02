@@ -4,6 +4,7 @@ import "fmt"
 
 var ErrClosed = fmt.Errorf("virtual file system is closed")
 var ErrChild = fmt.Errorf("virtual file system is a child of another fs")
+var ErrCircularReference = fmt.Errorf("circular reference detected in virtual file system")
 
 // var root = &Entry{type: filetype.Directory}
 var ErrDontWalk = fmt.Errorf("dont walk entries children")

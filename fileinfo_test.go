@@ -10,5 +10,4 @@ func TestFileInfoImplementsOSFileInfo(t *testing.T) {
 	var v interface{} = n
 	_, ok := v.(os.FileInfo)
 	assert(t, ok, "expected FileInfo to implement os.FileInfo")
-
 }

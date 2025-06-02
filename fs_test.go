@@ -14,19 +14,19 @@ import (
 func createFile(v *Fs, path string, perm os.FileMode, modTime time.Time, content string) error {
 	newV, err := v.Create(path, perm, modTime)
 	if err != nil {
-		return fmt.Errorf("failed to create virtual file  %v", err)
+		return fmt.Errorf("failed to create virtual file  %w", err)
 	}
 	file, err := newV.CreateFile()
 	if err != nil {
-		return fmt.Errorf("failed to create file  %v", err)
+		return fmt.Errorf("failed to create file  %w", err)
 	}
 	_, err = file.Write([]byte(content))
 	if err != nil {
-		return fmt.Errorf("failed to write to virtual file %v", err)
+		return fmt.Errorf("failed to write to virtual file %w", err)
 	}
 	err = file.Close()
 	if err != nil {
-		return fmt.Errorf("failed to close virtual file %v", err)
+		return fmt.Errorf("failed to close virtual file %w", err)
 	}
 
 	return nil
@@ -35,19 +35,19 @@ func createFile(v *Fs, path string, perm os.FileMode, modTime time.Time, content
 func createChildFile(v *Fs, perm os.FileMode, modTime time.Time, content string) error {
 	newV, err := v.CreateWithoutPath(perm, modTime)
 	if err != nil {
-		return fmt.Errorf("failed to create virtual file  %v", err)
+		return fmt.Errorf("failed to create virtual file  %w", err)
 	}
 	file, err := newV.CreateFile()
 	if err != nil {
-		return fmt.Errorf("failed to create file  %v", err)
+		return fmt.Errorf("failed to create file  %w", err)
 	}
 	_, err = file.Write([]byte(content))
 	if err != nil {
-		return fmt.Errorf("failed to write to virtual file %v", err)
+		return fmt.Errorf("failed to write to virtual file %w", err)
 	}
 	err = file.Close()
 	if err != nil {
-		return fmt.Errorf("failed to close virtual file %v", err)
+		return fmt.Errorf("failed to close virtual file %w", err)
 	}
 
 	return nil
@@ -150,6 +150,31 @@ func TestVirtualOg(t *testing.T) {
 
 		_, err = v.Hardlink("/foo1/foo2/foo3/no-where", "/foo1/foo2/hardlink-bar-dont-get-created", 0700, time1)
 		assertErr(t, ErrNotFound, err, "failed to error on bad hardlink /foo1/foo2/hardlink-bar-dont-get-created")
+	})
+}
+
+func TestVirtualDontAllowCircular(t *testing.T) {
+	tmpDir(t, func(tmp string) {
+		v, err := newFooFs(tmp)
+		fatalfIfErr(t, err, "Failed to create virtual function")
+
+		err = createFile(v, "/foo-duplicate", 0655, time1, "foo")
+		fatalfIfErr(t, err, "failed to create virtual file /foo-duplicate")
+
+		newV, err := v.Stat("/foo-duplicate")
+		fatalfIfErr(t, err, "failed to get /foo-duplicate")
+
+		newV2, err := newV.CreateWithoutPath(0655, time1)
+		fatalfIfErr(t, err, "failed to create virtual file without path")
+
+		file, err := newV2.CreateFile()
+		fatalfIfErr(t, err, "failed to create virtual file")
+
+		_, err = file.Write([]byte("foo"))
+		fatalfIfErr(t, err, "failed to write to virtual file")
+
+		err = file.Close()
+		assertErr(t, ErrCircularReference, err, "created a circular child virtual file")
 	})
 }
 
@@ -408,7 +433,7 @@ func TestSingleRootChild(t *testing.T) {
 		v, err := NewFs(tmp, "", fooMod, fooTime, f)
 		fatalfIfErr(t, err, "Failed to create virtual function")
 
-		err = createChildFile(v, 0700, time2, "sZ�f�H�����/�IQ����")
+		err = createChildFile(v, 0700, time2, helloWorldCompressed)
 		fatalfIfErr(t, err, "failed to create child")
 
 		newV, err := v.Stat("/")
@@ -419,7 +444,7 @@ func TestSingleRootChild(t *testing.T) {
 
 		expected := []fileinfoTest{
 			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags},
-			{"/", 0700, time2, helloWorldCompressedSha512, "text/plain; charset=utf-8", "", emptyTags},
+			{"/", 0700, time2, helloWorldCompressedSha512, "application/gzip", "", emptyTags},
 			{"/moreFoo", 0100, time3, helloFooSha512, "text/plain; charset=utf-8", "", emptyTags},
 		}
 		assertFiles(t, expected, v, "comparing")
@@ -450,14 +475,14 @@ func TestSingleChild(t *testing.T) {
 		v, err := newFooFs(tmp)
 		fatalfIfErr(t, err, "failed to create virtual function")
 
-		err = createFile(v, "/bar", 0655, time1, "Hello, World!")
-		fatalfIfErr(t, err, "failed to create virtual file /bar")
+		err = createFile(v, "/bar", 0700, time2, helloWorldCompressed)
+		fatalfIfErr(t, err, "failed to create child")
 
 		newV, err := v.Stat("/bar")
 		fatalfIfErr(t, err, "failed to create virtual from bar")
 
-		err = createChildFile(newV, 0700, time2, "sZ�f�H�����/�IQ����")
-		fatalfIfErr(t, err, "failed to create child")
+		err = createChildFile(newV, 0655, time1, "Hello, World!")
+		fatalfIfErr(t, err, "failed to create virtual file /bar")
 
 		newVV, err := v.Stat("/bar")
 		fatalfIfErr(t, err, "failed to create virtual filesystemfrom bar compressed")
@@ -467,8 +492,8 @@ func TestSingleChild(t *testing.T) {
 
 		expected := []fileinfoTest{
 			{"/", fooMod, ignoreTime, fooSha512, "application/octet-stream", "", emptyTags},
+			{"/bar", 0700, time2, helloWorldCompressedSha512, "application/gzip", "", emptyTags},
 			{"/bar", 0655, time1, helloWorldSha512, "text/plain; charset=utf-8", "", emptyTags},
-			{"/bar", 0700, time2, helloWorldCompressedSha512, "text/plain; charset=utf-8", "", emptyTags},
 			{"/bar/moreFoo", 0100, time3, helloFooSha512, "text/plain; charset=utf-8", "", emptyTags},
 		}
 		assertFiles(t, expected, v, "comparing")
@@ -476,17 +501,17 @@ func TestSingleChild(t *testing.T) {
 		fi, err := v.Stat("/bar")
 		fatalfIfErr(t, err, "failed to get stat /bar from virtual file bar")
 		assertEqual(t, "bar", fi.Name(), "should have name of original file for direct child")
-		assertEqual(t, helloWorldCompressedSha512, fi.Sha512(), "should have foo sha512")
+		assertEqual(t, helloWorldSha512, fi.Sha512(), "should have foo sha512")
 
 		fi, err = v.StatAt("/bar", 0)
 		fatalfIfErr(t, err, "failed to get stat /bar at 0 from virtual file bar")
 		assertEqual(t, "bar", fi.Name(), "should have name of original file for direct child")
-		assertEqual(t, helloWorldSha512, fi.Sha512(), "should have foo sha512")
+		assertEqual(t, helloWorldCompressedSha512, fi.Sha512(), "should have foo sha512")
 
 		fi, err = v.StatAt("/bar", 1)
 		fatalfIfErr(t, err, "failed to get stat /bar at 1 from virtual file bar")
 		assertEqual(t, "bar", fi.Name(), "should have name of original file for direct child")
-		assertEqual(t, helloWorldCompressedSha512, fi.Sha512(), "should have foo sha512")
+		assertEqual(t, helloWorldSha512, fi.Sha512(), "should have foo sha512")
 
 		_, err = v.StatAt("/bar", 2)
 		assertErr(t, ErrNotFound, err, "should error stat at not existing")

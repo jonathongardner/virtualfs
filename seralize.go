@@ -3,9 +3,9 @@ package virtualfs
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/jonathongardner/fifo/filetype"
@@ -23,16 +23,18 @@ func (v *Fs) save() error {
 	dbFile := v.FinDBPath()
 	file, err := os.Create(dbFile)
 	if err != nil {
-		return fmt.Errorf("error opneing file %v - %v", dbFile, err)
+		return fmt.Errorf("error opneing file %v - %w", dbFile, err)
 	}
 	defer file.Close()
 
-	err = v.Walk("/", func(path string, info *Fs) error {
-		toSave := map[string]any{"path": path, "info": fileInfoToMap(info)}
-		jsonString, _ := json.Marshal(toSave)
+	err = v.walkRecursive("/", false, func(path string, child bool, fs *Fs) error {
+		jsonString, err := json.Marshal(toJsonFs(path, child, fs))
+		if err != nil {
+			return fmt.Errorf("error marshalling file info %v - %w", path, err)
+		}
 		// encoder := json.NewEncoder(file)
 		// encoder.Encode(toSave)
-		_, err := file.Write(jsonString)
+		_, err = file.Write(jsonString)
 		if err != nil {
 			return err
 		}
@@ -52,219 +54,164 @@ func (v *Fs) load(storageDir string) error {
 	dbFile := v.db.finDBPath()
 	file, err := os.Open(dbFile)
 	if err != nil {
-		return fmt.Errorf("error opening db file - %v", err)
+		return fmt.Errorf("error opening db file - %w", err)
 	}
 	defer file.Close()
 
 	sc := bufio.NewScanner(file)
 
 	sc.Scan()
-	path, err := unmarshal(v, sc.Bytes())
+	jsonFs, err := unmarshal(sc.Bytes())
 	if err != nil {
-		return fmt.Errorf("error unmarshalling root Fs - %v", err)
+		return fmt.Errorf("error unmarshalling root Fs - %w", err)
 	}
-	if path != "/" {
-		return fmt.Errorf("first path should be / %v", path)
-	}
+	fromJsonFs(v, jsonFs)
 
 	for sc.Scan() {
 		fs := &Fs{db: v.db}
-		path, err := unmarshal(fs, sc.Bytes())
+		jsonFs, err := unmarshal(sc.Bytes())
 		if err != nil {
-			return fmt.Errorf("error unmarshinling Fs - %v", err)
+			return fmt.Errorf("error unmarshinling Fs - %w", err)
+		}
+		if err := fromJsonFs(fs, jsonFs); err != nil {
+			return fmt.Errorf("error fromJsonFs - %w", err)
 		}
 
-		parentNode := v
-		paths, err := split(path)
+		paths, err := split(jsonFs.Path)
 		if err != nil {
-			return err
+			return fmt.Errorf("error splitting path %v - %w", jsonFs.Path, err)
 		}
-		end := len(paths) - 1
-		// TODO: need to handle single child paths...
-		for _, p := range paths[:end] {
-			var ok bool
-			parentNode, ok = parentNode.ref.children[p]
-			if !ok {
-				return fmt.Errorf("error getting FileInfo %v", path)
-			}
+		lastPath := len(paths) - 1
+		parent, err := v.travelTo(paths[:lastPath], -1)
+		if err != nil {
+			return fmt.Errorf("error getting parent Fs %v - %w", jsonFs.Path, err)
 		}
-
-		parentNode.ref.children[paths[end]] = fs
+		// Check if the parent already has the child/name, if so, it must be a child
+		parent, err = parent.travelTo(paths[lastPath:], -1)
+		switch err {
+		case nil:
+			// the path already exists, so it MUST be a child
+			parent.ref.child = fs
+		case ErrNotFound: //nolint:errorlint
+			// then this is a new path, so add the path
+			parent.ref.children[fs.name] = fs
+		default:
+			return fmt.Errorf("error getting parent Fs %v - %w", jsonFs.Path, err)
+		}
 	}
 
 	err = sc.Err()
 	if err != nil {
-		return fmt.Errorf("error reading db - %v", err)
+		return fmt.Errorf("error reading db - %w", err)
 	}
 
 	err = os.Remove(dbFile)
 	if err != nil {
-		return fmt.Errorf("error removing db - %v", err)
+		return fmt.Errorf("error removing db - %w", err)
 	}
 
 	return nil
 }
 
-// ------------------------------JSON stuff--------------------------------
-func fileInfoToMap(n *Fs) map[string]any {
-	toReturn := make(map[string]any)
-	toReturn["name"] = n.name
-	toReturn["mode"] = uint32(n.mode)
-	toReturn["modTime"] = n.modTime
+type jsonFs struct {
+	Path    string            `json:"path"`
+	Child   bool              `json:"child"`
+	Name    string            `json:"name"`
+	Mode    uint32            `json:"mode"`
+	ModTime time.Time         `json:"modTime"`
+	Uid     string            `json:"uid"`
+	Type    filetype.Filetype `json:"type"`
+	Tags    map[string]any    `json:"tags"`
+	Warning []string          `json:"warning"`
+	Error   string            `json:"error"`
+	Symlink string            `json:"symlink"`
+	Size    int64             `json:"size"`
+	MD5     string            `json:"md5"`
+	SHA1    string            `json:"sha1"`
+	SHA256  string            `json:"sha256"`
+	SHA512  string            `json:"sha512"`
+	Entropy float64           `json:"entropy"`
+}
 
-	toReturn["id"] = n.ref.id
-	toReturn["type"] = n.ref.typ
-	tags := map[string]any{}
+// ------------------------------JSON stuff--------------------------------
+func toJsonFs(path string, child bool, n *Fs) jsonFs {
+	tags := make(map[string]any)
 	n.ref.tags.Range(func(key, value any) bool {
 		tags[key.(string)] = value
 		return true // Return true to continue iterating
 	})
-	toReturn["tags"] = tags
+
+	err := ""
 	if n.ref.err != nil {
-		toReturn["error"] = n.ref.err.Error()
+		err = n.ref.err.Error()
 	}
-	if n.ref.warn != nil {
-		warning := []string{}
-		for _, e := range n.ref.warn {
-			warning = append(warning, e.Error())
-		}
-		toReturn["warning"] = warning
+	warning := []string{}
+	for _, e := range n.ref.warn {
+		warning = append(warning, e.Error())
 	}
-	if n.ref.typ == filetype.Symlink {
-		toReturn["symlink"] = n.symlinkPath
-	} else if n.ref.typ != filetype.Dir {
-		toReturn["size"] = n.ref.size
-		toReturn["md5"] = n.ref.md5
-		toReturn["sha1"] = n.ref.sha1
-		toReturn["sha256"] = n.ref.sha256
-		toReturn["sha512"] = n.ref.sha512
-		toReturn["entropy"] = n.ref.entropy
+
+	ref := n.ref
+	return jsonFs{
+		Path:    path,
+		Child:   child,
+		Name:    n.name,
+		Mode:    uint32(n.mode),
+		ModTime: n.modTime,
+		Symlink: n.symlinkPath,
+		Tags:    tags,
+		Error:   err,
+		Warning: warning,
+		Uid:     ref.id,
+		Type:    ref.typ,
+		Size:    ref.size,
+		MD5:     ref.md5,
+		SHA1:    ref.sha1,
+		SHA256:  ref.sha256,
+		SHA512:  ref.sha512,
+		Entropy: ref.entropy,
 	}
-	return toReturn
 }
 
-func unmarshal(n *Fs, dataBytes []byte) (string, error) {
-	toLoad := make(map[string]any)
-	if err := json.Unmarshal(dataBytes, &toLoad); err != nil {
-		return "", fmt.Errorf("error decoding db line - %v", err)
-	}
-	path := toLoad["path"].(string)
-	data := toLoad["info"].(map[string]any)
+func fromJsonFs(n *Fs, data jsonFs) error {
+	n.name = data.Name
+	n.mode = os.FileMode(data.Mode)
+	n.modTime = data.ModTime
+	n.symlinkPath = data.Symlink
 
-	var err error
-	var ok bool
-	n.name, ok = data["name"].(string)
-	if !ok {
-		return path, fmt.Errorf("error getting name: %v", data["name"])
-	}
+	var updated bool
+	n.ref, updated = n.db.updateIfDuplicate(&reference{
+		id:       data.Uid,
+		size:     data.Size,
+		typ:      data.Type,
+		md5:      data.MD5,
+		sha1:     data.SHA1,
+		sha256:   data.SHA256,
+		sha512:   data.SHA512,
+		entropy:  data.Entropy,
+		children: make(map[string]*Fs),
+	})
 
-	mod, ok := data["mode"].(float64)
-	if !ok {
-		return path, fmt.Errorf("error getting mode: %v", data["mode"])
-	}
-	n.mode = os.FileMode(uint32(mod))
-
-	modTime, ok := data["modTime"].(string)
-	if !ok {
-		return path, fmt.Errorf("error getting modTime: %v", data["modTime"])
-	}
-	n.modTime, err = time.Parse(time.RFC3339, modTime)
-	if err != nil {
-		return path, fmt.Errorf("error parsing modTime %v", err)
+	if updated {
+		return n.checkIfCircular(n.ref.sha512, true)
 	}
 
-	ref := &reference{children: make(map[string]*Fs)}
-	n.ref = ref
-
-	ref.id, ok = data["id"].(string)
-	if !ok {
-		return path, fmt.Errorf("error getting id: %v", data["id"])
+	for k, v := range data.Tags {
+		n.ref.tags.Store(k, v)
 	}
 
-	typ, ok := data["type"].(map[string]any)
-	if !ok {
-		return path, fmt.Errorf("error getting type: %v", data["type"])
-	}
-	ref.typ = filetype.FiletypeFromJson(typ)
-
-	tags, ok := data["tags"].(map[string]any)
-	if !ok {
-		return path, fmt.Errorf("error getting tags: %v", data["tags"])
-	}
-	for k, v := range tags {
-		ref.tags.Store(k, v)
-	}
-
-	_, ok = data["error"]
-	if ok {
-		errValue, ok := data["error"].(string)
-		if !ok {
-			return path, fmt.Errorf("error getting error: %v", data["error"])
-		}
+	if data.Error != "" {
+		n.ref.err = fmt.Errorf(data.Error)
 		n.db.err = true
-		ref.err = fmt.Errorf(errValue)
 	}
 
-	_, ok = data["warning"]
-	if ok {
-		warnValues, ok := data["warning"].([]any)
-		if !ok {
-			return path, fmt.Errorf("error getting warning: %v", data["warning"])
-		}
-		n.db.warn = true
-		for i, warnValue := range warnValues {
-			wv, ok := warnValue.(string)
-			if !ok {
-				return path, fmt.Errorf("error getting warning.%v: %v", i, wv)
-			}
-			ref.warn = append(ref.warn, fmt.Errorf(wv))
-		}
+	n.db.warn = n.db.warn || len(data.Warning) > 0
+	for _, w := range data.Warning {
+		n.ref.warn = append(n.ref.warn, errors.New(w))
 	}
+	return nil
+}
 
-	if ref.typ == filetype.Dir {
-		n.ref = ref
-	} else if ref.typ == filetype.Symlink {
-		n.symlinkPath, ok = data["symlink"].(string)
-		if !ok {
-			return path, fmt.Errorf("error getting symlinkPath: %v", data["symlink"])
-		}
-		n.ref = ref
-	} else {
-		size, ok := data["size"].(float64)
-		if !ok {
-			return path, fmt.Errorf("error getting size: %v", data["size"])
-		}
-		ref.size = int64(size)
-
-		ref.md5, ok = data["md5"].(string)
-		if !ok {
-			return path, fmt.Errorf("error getting md5: %v", data["md5"])
-		}
-		ref.sha1, ok = data["sha1"].(string)
-		if !ok {
-			return path, fmt.Errorf("error getting sha1: %v", data["sha1"])
-		}
-		ref.sha256, ok = data["sha256"].(string)
-		if !ok {
-			return path, fmt.Errorf("error getting sha256: %v", data["sha256"])
-		}
-		ref.sha512, ok = data["sha512"].(string)
-		if !ok {
-			return path, fmt.Errorf("error getting sha512: %v", data["sha512"])
-		}
-		ref.entropy, ok = data["entropy"].(float64)
-		if !ok {
-			return path, fmt.Errorf("error getting entropy: %v", data["entropy"])
-		}
-
-		// if its a file, therfore it has a checksum so use this
-		path := filepath.Join(n.db.storageDir, ref.id)
-		if _, err := os.Stat(path); err != nil {
-			return path, fmt.Errorf("error getting file %v", err)
-		}
-		// if sha512 already seen it will return that reference otherwise it creates a new one
-		n.updateIfDuplicateRef()
-	}
-
-	return path, nil
+func unmarshal(dataBytes []byte) (jsonFs, error) {
+	toReturn := jsonFs{}
+	return toReturn, json.Unmarshal(dataBytes, &toReturn)
 }

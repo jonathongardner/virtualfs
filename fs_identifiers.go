@@ -52,3 +52,7 @@ func (fi *Fs) Entropy() float64 {
 func (fi *Fs) ErrorId() error {
 	return fmt.Errorf("id: %v, name: %v, type: %v,", fi.ref.id, fi.name, fi.ref.typ)
 }
+
+// func (fi *Fs) specialType() bool {
+// 	return fi.ref.typ == filetype.Directory || fi.ref.typ == filetype.Symlink
+// }

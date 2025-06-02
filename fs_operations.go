@@ -1,9 +1,11 @@
 package virtualfs
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -176,9 +178,38 @@ func (v *Fs) Hardlink(source, newname string, perm os.FileMode, modTime time.Tim
 func (v *Fs) Walk(path string, callback func(string, *Fs) error) error {
 	toWalk, path, err := v.fsFrom(path, 0)
 	if err != nil {
-		return fmt.Errorf("%v: %v (walk)", err, path)
+		return fmt.Errorf("%w: %v (walk)", err, path)
 	}
-	return toWalk.walkRecursive(path, callback)
+	return toWalk.walkRecursive(path, false, func(path string, child bool, fs *Fs) error { return callback(path, fs) })
+}
+
+func (n *Fs) walkRecursive(path string, child bool, callback func(string, bool, *Fs) error) error {
+	err := callback(path, child, n)
+	if errors.Is(err, ErrDontWalk) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	if n.ref.child != nil {
+		if err := n.ref.child.walkRecursive(path, true, callback); err != nil {
+			return err
+		}
+	} else if len(n.ref.children) > 0 {
+		names := make([]string, 0, len(n.ref.children))
+		for n := range n.ref.children {
+			names = append(names, n)
+		}
+		slices.Sort(names)
+		for _, name := range names {
+			if err := n.ref.children[name].walkRecursive(filepath.Join(path, name), false, callback); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // fsFrom returns the fileInfo for the path

@@ -21,12 +21,14 @@ var fooMod os.FileMode
 var fooTime time.Time
 
 const barFile = testFolder + "/bar"
-const barSha512 = "c971808ecc8c67052f1ccce75ca3ac57c75cad6abc1ce7767f7ca515aac311897478eb126dfa1d94042f3881e6fd09bca779dc274938dcaa828fc08ecec94315"
+
+// const barSha512 = "c971808ecc8c67052f1ccce75ca3ac57c75cad6abc1ce7767f7ca515aac311897478eb126dfa1d94042f3881e6fd09bca779dc274938dcaa828fc08ecec94315"
 
 var barMod os.FileMode
 
 const bazFile = testFolder + "/more/baz"
-const bazSha512 = "87784f6947fe864688fef50f29004e00e68f79b9a36113b53b4883ae90e0cdf0d7612dcd95079daed17caf9a2b66b0d2f06a7e1ee0984186ca755121f5216894"
+
+// const bazSha512 = "87784f6947fe864688fef50f29004e00e68f79b9a36113b53b4883ae90e0cdf0d7612dcd95079daed17caf9a2b66b0d2f06a7e1ee0984186ca755121f5216894"
 
 var bazMod os.FileMode
 
@@ -68,7 +70,10 @@ func TestMain(m *testing.M) {
 var ignoreTime = time.Date(0, 0, 0, 0, 0, 0, 0, time.UTC)
 
 const helloWorldSha512 = "374d794a95cdcfd8b35993185fef9ba368f160d8daf432d08ba9f1ed1e5abe6cc69291e0fa2fe0006a52570ef18c19def4e617c33ce52ef0a6e5fbe318cb0387"
-const helloWorldCompressedSha512 = "8f4f138d9d08f1c9f0d5a30a5703886f368b655926bc7823a110511dd83b2e28cf64d90f2825868c7bb5036bb7687bbe7c69e687ad6cf1c351f5b7c619b7b4b5"
+
+var helloWorldCompressed = string([]byte{31, 139, 8, 0, 0, 0, 0, 0, 0, 255, 242, 72, 205, 201, 201, 215, 81, 8, 207, 47, 202, 73, 81, 4, 4, 0, 0, 255, 255, 208, 195, 74, 236, 13, 0, 0, 0})
+
+const helloWorldCompressedSha512 = "2e887a0c9c0a52b149d46f5f1a849ccb55cce9866f11bcb66974bd424a6fc7a140f74a48cd3fafa0eff177c44ad4cfc551704eaf0e8796d61816a749ea9150f0"
 const helloFooSha512 = "9b617e0675ac2ede198cfacddf0b283d378a2cee8e72e551a1ae5400cdb9a46792556187e4d2fdbedece0f0021a6b1f74a6b460b62966ef68025abf75fb7df7a"
 
 var time1 = time.Date(2020, 12, 8, 19, 0, 0, 0, time.UTC)
@@ -80,12 +85,12 @@ var emptyTags = map[any]any{}
 func newFooFs(tmp string) (*Fs, error) {
 	f, err := os.Open(fooFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open foo file %v", err)
+		return nil, fmt.Errorf("failed to open foo file %w", err)
 	}
 	defer f.Close()
 	v, err := NewFs(tmp, "foo", fooMod, fooTime, f)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create virtual function %v", err)
+		return nil, fmt.Errorf("failed to create virtual function %w", err)
 	}
 	return v, nil
 }
@@ -93,7 +98,7 @@ func newFooFs(tmp string) (*Fs, error) {
 func newTestFolderFs(tmp string) (*Fs, error) {
 	v, err := NewFs(tmp, "foo-folder", testMod, testTime, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create virtual function %v", err)
+		return nil, fmt.Errorf("failed to create virtual function %w", err)
 	}
 	return v, nil
 }
@@ -120,13 +125,14 @@ func fatalfIfErr(t *testing.T, err error, format string, args ...interface{}) {
 	t.Fatal(str1, str2)
 }
 
+// assertErr asserts that the expected error is equal to the actual error.
 func assertErr(t *testing.T, exp error, act error, format string, args ...interface{}) {
 	t.Helper()
-	if errors.Is(exp, act) {
+	if errors.Is(act, exp) {
 		return
 	}
 
-	str1 := fmt.Sprintf("exp: %v, act: %v", exp, act)
+	str1 := fmt.Sprintf("exp: `%v`, act: `%v`", exp, act)
 	str2 := fmt.Sprintf(format, args...)
 	t.Error(str1, str2)
 }
@@ -146,7 +152,7 @@ func assertEqual(t *testing.T, exp any, act any, format string, args ...interfac
 		return
 	}
 
-	str1 := fmt.Sprintf("exp: %v, act: %v", exp, act)
+	str1 := fmt.Sprintf("exp: `%v`, act: `%v`", exp, act)
 	str2 := fmt.Sprintf(format, args...)
 	t.Error(str1, str2)
 }
@@ -157,7 +163,6 @@ func assertEqual(t *testing.T, exp any, act any, format string, args ...interfac
 func assertFiles(t *testing.T, expectedFileInfo []fileinfoTest, v *Fs, format string, args ...interface{}) {
 	t.Helper()
 	str := fmt.Sprintf(format, args...)
-	count := 0
 	// TODO: push thes to a struct than compare
 	actFileInfo := []fileinfoTest{}
 	v.Walk("/", func(path string, fi *Fs) error {
@@ -179,27 +184,30 @@ func assertFiles(t *testing.T, expectedFileInfo []fileinfoTest, v *Fs, format st
 		actFileInfo = append(actFileInfo, fit)
 		return nil
 	})
-	if len(actFileInfo) != len(expectedFileInfo) {
-		t.Fatalf("%v file count doesnt match, exp: %v, act: %v", str, len(expectedFileInfo), len(actFileInfo))
-	}
 
 	for i, afi := range actFileInfo {
+		if i >= len(expectedFileInfo) {
+			t.Fatalf("%v file count doesnt match, exp: %v, act: %v", str, len(expectedFileInfo), len(actFileInfo))
+		}
 		expectedFI := expectedFileInfo[i]
 
-		assertEqual(t, expectedFI.path, afi.path, "%v path doesnt match %v", str, count)
-		assertEqual(t, expectedFI.mode, afi.mode, "%v mode doesnt match %v (%d)", str, count, afi.mode)
+		assertEqual(t, expectedFI.path, afi.path, "%v path doesnt match %v", str, i)
+		assertEqual(t, expectedFI.mode, afi.mode, "%v mode doesnt match %v (%d)", str, i, afi.mode)
 		if expectedFI.modTime != ignoreTime {
-			assertEqual(t, expectedFI.modTime, afi.modTime, "%v modeTime doesnt match %v", str, count)
+			assertEqual(t, expectedFI.modTime, afi.modTime, "%v modeTime doesnt match %v", str, i)
 		}
-		assertEqual(t, expectedFI.sha512, afi.sha512, "%v sha512 doesnt match %v", str, count)
-		assertEqual(t, expectedFI.ftype, afi.ftype, "%v filetype doesnt match %v", str, count)
+		assertEqual(t, expectedFI.sha512, afi.sha512, "%v sha512 doesnt match %v", str, i)
+		assertEqual(t, expectedFI.ftype, afi.ftype, "%v filetype doesnt match %v", str, i)
 
-		assertEqual(t, len(expectedFI.tags), len(afi.tags), "%v maps size dont match %v", str, count)
+		assertEqual(t, len(expectedFI.tags), len(afi.tags), "%v maps size dont match %v", str, i)
 
-		assertEqual(t, expectedFI.symlinkPath, afi.symlinkPath, "%v symlinkPath doesnt match %v", str, count)
+		assertEqual(t, expectedFI.symlinkPath, afi.symlinkPath, "%v symlinkPath doesnt match %v", str, i)
 	}
 	if t.Failed() {
 		t.FailNow()
+	}
+	if len(actFileInfo) != len(expectedFileInfo) {
+		t.Fatalf("%v file count doesnt match, exp: %v, act: %v", str, len(expectedFileInfo), len(actFileInfo))
 	}
 }
 func assertPaths(t *testing.T, expectedPaths []string, v *Fs, format string, args ...interface{}) {
