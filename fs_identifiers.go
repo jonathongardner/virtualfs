@@ -53,6 +53,7 @@ func (fi *Fs) ErrorId() error {
 	return fmt.Errorf("id: %v, name: %v, type: %v,", fi.ref.id, fi.name, fi.ref.typ)
 }
 
-// func (fi *Fs) specialType() bool {
-// 	return fi.ref.typ == filetype.Directory || fi.ref.typ == filetype.Symlink
-// }
+// SpecialType returns true if dir or symlink
+func (fi *Fs) SpecialType() bool {
+	return fi.ref.typ == filetype.Dir || fi.ref.typ == filetype.Symlink
+}
