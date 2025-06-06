@@ -15,7 +15,7 @@ import (
 type Fs struct {
 	// fs
 	db     *referenceDB
-	parent *Fs
+	isRoot bool
 	closed bool
 	// file info (unique to the location)
 	name        string
@@ -28,7 +28,7 @@ type Fs struct {
 
 // NewFsFromDb loads a virtual file system from a directory DB
 func NewFsFromDb(storageDir string) (*Fs, error) {
-	toReturn := &Fs{}
+	toReturn := &Fs{isRoot: true}
 	return toReturn, toReturn.load(storageDir)
 }
 
@@ -39,7 +39,17 @@ func NewFs(storageDir, name string, mode os.FileMode, modTime time.Time, r io.Re
 		return nil, fmt.Errorf("unable to create storage dir: %w", err)
 	}
 
-	fs := newFileInfo(newReferenceDB(storageDir), name, mode, modTime)
+	fs := &Fs{
+		isRoot:  true,
+		db:      newReferenceDB(storageDir),
+		name:    name,
+		mode:    mode,
+		modTime: modTime,
+		ref: &reference{
+			id:       uuid.New().String(),
+			children: make(map[string]*Fs),
+		},
+	}
 	if mode.IsDir() {
 		fs.setToDir()
 	} else {
@@ -52,15 +62,14 @@ func NewFs(storageDir, name string, mode os.FileMode, modTime time.Time, r io.Re
 }
 
 // ----------------Helpers--------------------
-// newFileInfoWithReference creates a new file info object
-func newFileInfoWithReference(db *referenceDB, name string, mode os.FileMode, modTime time.Time, reference *reference) *Fs {
-	return &Fs{db: db, name: name, mode: mode, modTime: modTime, ref: reference}
+// newFsWithReference creates a new file info object
+func (f *Fs) newFsWithReference(name string, mode os.FileMode, modTime time.Time, reference *reference) *Fs {
+	return &Fs{db: f.db, name: name, mode: mode, modTime: modTime, isRoot: false, ref: reference}
 }
 
-// newFileInfo creates a new file info object and reference
-func newFileInfo(db *referenceDB, name string, mode os.FileMode, modTime time.Time) *Fs {
-	return newFileInfoWithReference(
-		db,
+// newFs creates a new file info object and reference
+func (f *Fs) newFs(name string, mode os.FileMode, modTime time.Time) *Fs {
+	return f.newFsWithReference(
 		name,
 		mode,
 		modTime,
@@ -141,8 +150,8 @@ func (v *Fs) Close() error {
 	if err := v.isClosed(); err != nil {
 		return err
 	}
-	if err := v.isChild(); err != nil {
-		return err
+	if !v.IsRoot() {
+		return ErrChild
 	}
 
 	v.closed = true
@@ -158,9 +167,13 @@ func (v *Fs) isClosed() error {
 	return nil
 }
 
-func (v *Fs) isChild() error {
-	if v.parent != nil {
-		return ErrChild
-	}
-	return nil
+// IsRoot checks if the virtual file system is the root
+func (v *Fs) IsRoot() bool {
+	return v.isRoot
+}
+
+// IsCompression check if the file has `child` or `children`
+// if its `child` then its a compressed file
+func (v *Fs) IsCompression() bool {
+	return v.ref.child != nil
 }
